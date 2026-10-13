@@ -91,7 +91,7 @@ st.subheader("➕ Add a New Song")
 with st.form("add_song_form"):
     new_title = st.text_input("Song title")
     new_artist = st.text_input("Artist name")
-
+    new_youtube_url = st.text_input("YouTube video URL (optional)")
     new_genre = st.selectbox(
         "Genre",
         ["Waltz", "Shawaa", "Other"]
@@ -129,7 +129,9 @@ if add_song_clicked:
             "genre": new_genre,
             "mood": new_mood,
             "energy": new_energy,
+            "youtube_url": new_youtube_url.strip(),
             "favorite": False
+            
         }
 
         songs.append(new_song)
@@ -166,6 +168,10 @@ if songs:
         edited_artist = st.text_input(
             "Artist name",
             value=selected_edit_song["artist"]
+        )
+        edited_youtube_url = st.text_input(
+            "YouTube video URL (optional)",
+             value=selected_edit_song.get("youtube_url", "")
         )
 
         genre_options = ["Waltz", "Shawaa", "Other"]
@@ -217,6 +223,7 @@ if songs:
             songs[edit_index]["genre"] = edited_genre
             songs[edit_index]["mood"] = edited_mood
             songs[edit_index]["energy"] = edited_energy
+            songs[edit_index]["youtube_url"] = edited_youtube_url.strip()
 
             with open(songs_file, "w", encoding="utf-8") as file:
                 json.dump(songs, file, indent=4, ensure_ascii=False)
@@ -392,6 +399,11 @@ else:
                             "**Why this song?** "
                             + ", ".join(item["reasons"])
                         )
+                    
+                    youtube_url = song.get("youtube_url", "").strip()
+
+                    if youtube_url:
+                        st.link_button("▶️ Watch on YouTube", youtube_url)
 
 
 
@@ -466,6 +478,11 @@ if show_favorites_only:
                 st.write(f"🎼 Genre: {song['genre']}")
                 st.write(f"😊 Mood: {song['mood']}")
                 st.write(f"⚡ Energy: {song['energy']}/5")
+                youtube_url = song.get("youtube_url", "").strip()
+                if youtube_url:
+                    st.link_button("▶️ Watch on YouTube", youtube_url)
+
+                
 
 
 # Display the complete library
@@ -528,3 +545,7 @@ else:
 
             if song.get("favorite", False):
                 st.write("❤️ Favorite")
+            youtube_url = song.get("youtube_url", "").strip()
+
+            if youtube_url:
+                st.link_button("▶️ Watch on YouTube", youtube_url)    
