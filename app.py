@@ -10,7 +10,6 @@ st.set_page_config(
     layout="wide"
 )
 
-
 st.markdown("""
 <style>
     .block-container {
@@ -45,7 +44,7 @@ st.markdown("""
         min-height: 3rem;
         font-weight: bold;
     }
-    
+
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border: 1px solid rgba(128, 128, 128, 0.25);
         border-radius: 16px;
@@ -60,7 +59,6 @@ st.markdown("""
     div[data-testid="stSelectbox"] {
         margin-bottom: 12px;
     }
-
 </style>
 
 <div class="hero">
@@ -88,6 +86,7 @@ except json.JSONDecodeError:
 if not songs:
     st.warning("Your song library is empty.")
     st.stop()
+
 
 # Calculate similarity using our existing scoring rules
 def calculate_similarity(song, selected_song):
@@ -123,14 +122,13 @@ selected_index = st.selectbox(
 
 selected_song = songs[selected_index]
 
-st.write(
-    f"**Selected song:** {selected_song['title']}"
-)
+st.write(f"**Selected song:** {selected_song['title']}")
 st.write(
     f"**Genre:** {selected_song['genre']} | "
     f"**Mood:** {selected_song['mood']} | "
     f"**Energy:** {selected_song['energy']}/5"
 )
+
 
 # Generate recommendations when the button is clicked
 if st.button("🎵 Recommend Songs", type="primary"):
@@ -196,7 +194,9 @@ if st.button("🎵 Recommend Songs", type="primary"):
                 st.write(f"🎼 **Genre:** {song['genre']}")
                 st.write(f"😊 **Mood:** {song['mood']}")
                 st.write(f"⚡ **Energy:** {song['energy']}/5")
-                st.write(f"🏆 **Similarity score:** {item['score']}")
+                st.write(
+                    f"🏆 **Similarity score:** {item['score']}"
+                )
 
                 if item["reasons"]:
                     st.write(
@@ -204,18 +204,62 @@ if st.button("🎵 Recommend Songs", type="primary"):
                         + ", ".join(item["reasons"])
                     )
 
+
 # Display the complete library
 st.divider()
 st.subheader("🎶 Your Song Library")
+
+
+# Function to clear the search field
+def clear_search():
+    st.session_state["song_search"] = ""
+
+
+# Clear search button
+st.button(
+    "✖ Clear search",
+    on_click=clear_search
+)
+
+
+# Search box with automatic updates
+search_query = st.text_input(
+    "🔍 Search songs",
+    placeholder="Type a song title, artist, genre, or mood...",
+    key="song_search"
+)
+
+
+# Count the total songs
 st.write(f"Total songs: {len(songs)}")
 
-for song in songs:
-    with st.container(border=True):
-        st.write(f"**{song['title']}**")
-        st.write(f"🎤 Artist: {song['artist']}")
-        st.write(f"🎼 Genre: {song['genre']}")
-        st.write(f"😊 Mood: {song['mood']}")
-        st.write(f"⚡ Energy: {song['energy']}/5")
 
-        if song.get("favorite", False):
-            st.write("❤️ Favorite")
+# Find songs that match the search
+filtered_songs = []
+
+for song in songs:
+    if (
+        search_query.lower() in song["title"].lower()
+        or search_query.lower() in song["artist"].lower()
+        or search_query.lower() in song["genre"].lower()
+        or search_query.lower() in song["mood"].lower()
+    ):
+        filtered_songs.append(song)
+
+
+# Display the matching songs
+if not filtered_songs:
+    st.info("No songs found. Try another search.")
+else:
+    st.write(f"Songs found: {len(filtered_songs)}")
+
+    for song in filtered_songs:
+        with st.container(border=True):
+            st.write(f"**{song['title']}**")
+            st.write(f"🎤 Artist: {song['artist']}")
+            st.write(f"🎼 Genre: {song['genre']}")
+            st.write(f"😊 Mood: {song['mood']}")
+            st.write(f"⚡ Energy: {song['energy']}/5")
+
+            if song.get("favorite", False):
+                st.write("❤️ Favorite")
