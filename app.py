@@ -350,9 +350,15 @@ else:
                 "reasons": reasons
             })
 
-        # Highest-scoring songs first
+        
+        # Rank the most relevant songs first
         recommendations.sort(
-            key=lambda item: item["score"],
+            key=lambda item: (
+                item["score"],
+                item["song"]["mood"].casefold() == user_mood.casefold(),
+                item["song"]["genre"].casefold() == selected_song["genre"].casefold(),
+                item["song"]["energy"] == selected_song["energy"]
+            ),
             reverse=True
         )
 
@@ -361,6 +367,7 @@ else:
             item for item in recommendations
             if item["score"] > 0
         ][:2]
+
 
         st.subheader("✨ Your Recommendations")
 
