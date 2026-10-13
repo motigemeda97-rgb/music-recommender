@@ -1,0 +1,50 @@
+[
+    {
+        "title": "hiriyaa gadhee",
+        "artist": "Yaadasaa Shirrii",
+        "genre": "Waltz",
+        "mood": "Calm",
+        "energy": 3,
+        "favorite": true
+    },
+    {
+        "title": "Goota Mararaa",
+        "artist": "Yaadasaa Shirrii",
+        "genre": "Shawaa",
+        "mood": "Energetic",
+        "energy": 5,
+        "favorite": false
+    },
+    {
+        "title": "Dirmammaa'ee du'a na baraare",
+        "artist": "Dawit Girma",
+        "genre": "Shawaa",
+        "mood": "Energetic",
+        "energy": 5,
+        "favorite": false
+    },
+    {
+        "title": "Jalala nama hundaa",
+        "artist": "Eeliyaas Gabulaa",
+        "genre": "Waltz",
+        "mood": "Happy",
+        "energy": 3,
+        "favorite": false
+    },
+    {
+        "title": "wanti ati anaaf Goote",
+        "artist": "Tamaam Faares",
+        "genre": "Waltz",
+        "mood": "Sad",
+        "energy": 2,
+        "favorite": true
+    },
+    {
+        "title": "dhugaanii",
+        "artist": "bafiqaaduu baqqalaa",
+        "genre": "waltz",
+        "mood": "Sad",
+        "energy": 5,
+        "favorite": false
+    }
+]
