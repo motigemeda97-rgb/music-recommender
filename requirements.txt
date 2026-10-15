@@ -1,2 +1,3 @@
 
 streamlit==1.65.0
+supabase==2.32.0
