@@ -250,10 +250,28 @@ if st.session_state["is_admin"]:
         new_youtube_url = st.text_input(
             "YouTube video URL (optional)"
         )
+        new_style = st.selectbox(
+            "Style",
+            [
+                "Waltz",
+                "Slow Rock",
+                "Reggae",
+                "Ballaad",
+                "Disco",
+                "Chikchika",
+                "Walloo",
+                "Shawaa"
+            ]
+        )
 
-        new_genre = st.selectbox(
-            "Genre",
-            ["Waltz", "Shawaa", "Other"]
+        new_scale = st.selectbox(
+            "Scale",
+            [
+                "First (C)",
+                "Second (D)",
+                "Fifth (G)",
+                "Sixth (A)"
+            ]
         )
 
         new_mood = st.selectbox(
@@ -289,7 +307,8 @@ if st.session_state["is_admin"]:
             new_song = {
                 "title": new_title.strip(),
                 "artist": new_artist.strip(),
-                "genre": new_genre,
+                "style": new_style,
+                "scale": new_scale,
                 "mood": new_mood,
                 "energy": new_energy,
                 "youtube_url": new_youtube_url.strip(),
@@ -347,16 +366,51 @@ if st.session_state["is_admin"]:
                 value=selected_edit_song.get("youtube_url", "")
             )
 
-            genre_options = ["Waltz", "Shawaa", "Other"]
-            current_genre = selected_edit_song["genre"]
+            style_options = [
+                "Waltz",
+                "Slow Rock",
+                "Reggae",
+                "Ballaad",
+                "Disco",
+                "Chikchika",
+                "Walloo",
+                "Shawaa"
+            ]
 
-            if current_genre not in genre_options:
-                genre_options.append(current_genre)
+            current_style = selected_edit_song.get(
+                "style",
+                selected_edit_song.get("genre", "Waltz")
+            )
 
-            edited_genre = st.selectbox(
-                "Genre",
-                genre_options,
-                index=genre_options.index(current_genre)
+            if current_style not in style_options:
+                style_options.append(current_style)
+
+            edited_style = st.selectbox(
+                "Style",
+                style_options,
+                index=style_options.index(current_style)
+            )
+
+            scale_options = [
+                "Not assigned",
+                "First (C)",
+                "Second (D)",
+                "Fifth (G)",
+                "Sixth (A)"
+            ]
+
+            current_scale = selected_edit_song.get(
+                "scale", "Not assigned"
+            )
+
+            edited_scale = st.selectbox(
+                "Scale",
+                scale_options,
+                index=scale_options.index(
+                    current_scale
+                    if current_scale in scale_options
+                    else "Not assigned"
+                )
             )
 
             mood_options = ["Happy", "Calm", "Energetic", "Sad"]
@@ -403,7 +457,13 @@ if st.session_state["is_admin"]:
 
                 updated_songs[edit_index]["title"] = edited_title.strip()
                 updated_songs[edit_index]["artist"] = edited_artist.strip()
-                updated_songs[edit_index]["genre"] = edited_genre
+                updated_songs[edit_index]["style"] = edited_style
+                updated_songs[edit_index]["scale"] = (
+                edited_scale if edited_scale != "Not assigned" else ""
+            )
+                updated_songs[edit_index].pop("genre", None)
+
+
                 updated_songs[edit_index]["mood"] = edited_mood
                 updated_songs[edit_index]["energy"] = edited_energy
                 updated_songs[edit_index]["youtube_url"] = (
@@ -496,8 +556,16 @@ else:
 def calculate_similarity(song, selected_song):
     score = 0
 
-    if song["genre"].casefold() == selected_song["genre"].casefold():
+    song_style = song.get("style", song.get("genre", ""))
+    selected_style = selected_song.get(
+        "style", selected_song.get("genre", "")
+    )
+
+    if song_style.casefold() == selected_style.casefold():
         score += 2
+
+    if song.get("scale") and song.get("scale") == selected_song.get("scale"):
+        score += 5
 
     if song["mood"].casefold() == selected_song["mood"].casefold():
         score += 2
@@ -536,8 +604,14 @@ else:
 
     st.write(f"**Selected song:** {selected_song['title']}")
 
+    selected_style = selected_song.get(
+        "style", selected_song.get("genre", "Unknown")
+    )
+    selected_scale = selected_song.get("scale") or "Not assigned"
+
     st.write(
-        f"**Genre:** {selected_song['genre']} | "
+        f"**Style:** {selected_style} | "
+        f"**Scale:** {selected_scale} | "
         f"**Mood:** {selected_song['mood']} | "
         f"**Energy:** {selected_song['energy']}/5"
     )
@@ -556,14 +630,22 @@ else:
 
             reasons = []
 
-            if song["genre"].casefold() == selected_song["genre"].casefold():
-                reasons.append("same genre (+2)")
+            song_style = song.get("style", song.get("genre", ""))
+            selected_style = selected_song.get(
+            "style", selected_song.get("genre", "")
+)
+
+            if song_style and selected_style and song_style.casefold() == selected_style.casefold():
+                reasons.append("same style (+2)")
+
+            if song.get("scale") and song.get("scale") == selected_song.get("scale"):
+                reasons.append("same scale (+5)")
 
             if song["mood"].casefold() == selected_song["mood"].casefold():
                 reasons.append("same mood (+2)")
 
             if song["energy"] == selected_song["energy"]:
-                reasons.append("same energy level (+1)")
+                reasons.append("same energy (+1)")
 
             if song["mood"].casefold() == user_mood.casefold():
                 reasons.append("matches your chosen mood (+3)")
@@ -573,17 +655,24 @@ else:
                 "song": song,
                 "reasons": reasons
             })
-
         recommendations.sort(
             key=lambda item: (
                 item["score"],
                 item["song"]["mood"].casefold() == user_mood.casefold(),
-                item["song"]["genre"].casefold()
-                == selected_song["genre"].casefold(),
+                item["song"].get("scale", "") != ""
+                and item["song"].get("scale", "")
+                == selected_song.get("scale", ""),
+                item["song"].get(
+                    "style", item["song"].get("genre", "")
+                ).casefold()
+                == selected_song.get(
+                    "style", selected_song.get("genre", "")
+                ).casefold(),
                 item["song"]["energy"] == selected_song["energy"]
             ),
             reverse=True
         )
+
 
         top_matches = [
             item for item in recommendations
@@ -602,7 +691,9 @@ else:
                 with st.container(border=True):
                     st.subheader(f"🎵 {song['title']}")
                     st.write(f"🎤 **Artist:** {song['artist']}")
-                    st.write(f"🎼 **Genre:** {song['genre']}")
+                    song_style = song.get("style", song.get("genre", "Unknown"))
+                    song_scale = song.get("scale") or "Not assigned"
+                    st.write(f"🎼 **Style:** {song_style} | **Scale:** {song_scale}")
                     st.write(f"😊 **Mood:** {song['mood']}")
                     st.write(f"⚡ **Energy:** {song['energy']}/5")
 
@@ -713,7 +804,9 @@ if show_favorites_only:
             with st.container(border=True):
                 st.write(f"❤️ **{song['title']}**")
                 st.write(f"🎤 Artist: {song['artist']}")
-                st.write(f"🎼 Genre: {song['genre']}")
+                song_style = song.get("style", song.get("genre", "Unknown"))
+                song_scale = song.get("scale") or "Not assigned"
+                st.write(f"🎼 Style: {song_style} | Scale: {song_scale}")
                 st.write(f"😊 Mood: {song['mood']}")
                 st.write(f"⚡ Energy: {song['energy']}/5")
 
@@ -745,7 +838,7 @@ st.button(
 
 search_query = st.text_input(
     "🔍 Search songs",
-    placeholder="Type a song title, artist, genre, or mood...",
+    placeholder="Type a song title, artist, style, mood, or scale...",
     key="song_search"
 )
 
@@ -756,11 +849,12 @@ query = search_query.strip().casefold()
 
 for song in songs:
     if (
-        query in song["title"].casefold()
-        or query in song["artist"].casefold()
-        or query in song["genre"].casefold()
-        or query in song["mood"].casefold()
-    ):
+    query in song["title"].casefold()
+    or query in song["artist"].casefold()
+    or query in song.get("style", song.get("genre", "")).casefold()
+    or query in song["mood"].casefold()
+    or query in song.get("scale", "").casefold()
+):
         filtered_songs.append(song)
 
 if not filtered_songs:
@@ -773,7 +867,10 @@ else:
         with st.container(border=True):
             st.write(f"**{song['title']}**")
             st.write(f"🎤 Artist: {song['artist']}")
-            st.write(f"🎼 Genre: {song['genre']}")
+            song_style = song.get("style", song.get("genre", "Unknown"))
+            song_scale = song.get("scale") or "Not assigned"
+
+            st.write(f"🎼 Style: {song_style} | Scale: {song_scale}")
             st.write(f"😊 Mood: {song['mood']}")
             st.write(f"⚡ Energy: {song['energy']}/5")
 

@@ -2,55 +2,97 @@
     {
         "title": "hiriyaa gadhee miti",
         "artist": "Yaadasaa Shirrii",
-        "genre": "Waltz",
         "mood": "Calm",
         "energy": 3,
         "favorite": true,
-        "youtube_url": "https://youtu.be/znjhEBGrGjo?list=RDznjhEBGrGjo"
+        "youtube_url": "https://youtu.be/znjhEBGrGjo?list=RDznjhEBGrGjo",
+        "style": "Waltz",
+        "scale": "First (C)"
     },
     {
         "title": "Goota Mararaa",
         "artist": "Yaadasaa Shirrii",
-        "genre": "Shawaa",
         "mood": "Energetic",
         "energy": 5,
         "favorite": true,
-        "youtube_url": "https://youtu.be/5obpxoYpCnk?list=RD5obpxoYpCnk"
+        "youtube_url": "https://youtu.be/5obpxoYpCnk?list=RD5obpxoYpCnk",
+        "style": "Shawaa"
     },
     {
         "title": "Dirmammaa'ee du'a na baraare",
         "artist": "Dawit Girma",
-        "genre": "Shawaa",
         "mood": "Energetic",
         "energy": 5,
         "favorite": false,
-        "youtube_url": "https://youtu.be/qGt4f4J81Go?list=RDqGt4f4J81Go"
+        "youtube_url": "https://youtu.be/qGt4f4J81Go?list=RDqGt4f4J81Go",
+        "style": "Shawaa",
+        "scale": "Sixth (A)"
     },
     {
         "title": "Jalala nama hundaa",
         "artist": "Addisuu Qana'aa",
-        "genre": "Waltz",
         "mood": "Happy",
         "energy": 3,
         "favorite": false,
-        "youtube_url": "https://youtu.be/AEN8qL8K3ac?list=RDAEN8qL8K3ac"
+        "youtube_url": "https://youtu.be/AEN8qL8K3ac?list=RDAEN8qL8K3ac",
+        "style": "Waltz"
     },
     {
         "title": "wanti ati anaaf Goote",
         "artist": "Tamaam Faares",
-        "genre": "Waltz",
         "mood": "Sad",
         "energy": 2,
         "favorite": true,
-        "youtube_url": "https://youtu.be/8hRUcfaDHE4?list=RD8hRUcfaDHE4"
+        "youtube_url": "https://youtu.be/8hRUcfaDHE4?list=RD8hRUcfaDHE4",
+        "style": "Waltz"
     },
     {
         "title": "dhugaanii",
         "artist": "bafiqaaduu baqqalaa",
-        "genre": "waltz",
         "mood": "Sad",
         "energy": 5,
         "favorite": false,
-        "youtube_url": "https://youtu.be/6lzwrt-jd5Y?list=RD6lzwrt-jd5Y"
+        "youtube_url": "https://youtu.be/6lzwrt-jd5Y?list=RD6lzwrt-jd5Y",
+        "style": "waltz"
+    },
+    {
+        "title": "Gorsaa Gumaa Araarsu(Ameen)",
+        "artist": "Daawwit Girmaa",
+        "style": "Waltz",
+        "scale": "Fifth (G)",
+        "mood": "Calm",
+        "energy": 3,
+        "youtube_url": "https://youtu.be/sDpwamMTfTQ?list=RDsDpwamMTfTQ",
+        "favorite": false
+    },
+    {
+        "title": "Yemmuun waa'ee kee yaadu",
+        "artist": "Magarsaa Baqqalaa",
+        "style": "Waltz",
+        "scale": "Fifth (G)",
+        "mood": "Calm",
+        "energy": 3,
+        "youtube_url": "https://youtu.be/fLhmlX8OelU?list=RDfLhmlX8OelU",
+        "favorite": false
+    },
+    {
+        "title": "Guddaadha ati",
+        "artist": "Mootii Tarreessaa",
+        "style": "Waltz",
+        "scale": "Fifth (G)",
+        "mood": "Calm",
+        "energy": 3,
+        "youtube_url": "https://youtu.be/0OATWirVL7c?list=RD0OATWirVL7c",
+        "favorite": false
+    },
+    {
+        "title": "Sin yaada",
+        "artist": "Bafiqaaduu Baqqalaa",
+        "style": "Waltz",
+        "scale": "Fifth (G)",
+        "mood": "Calm",
+        "energy": 3,
+        "youtube_url": "https://youtu.be/sK3lSkAQxfs?list=RDsK3lSkAQxfs",
+        "favorite": false
     }
 ]

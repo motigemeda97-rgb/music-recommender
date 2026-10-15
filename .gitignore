@@ -4,3 +4,15 @@ __pycache__/
 *.py[cod]
 
 .streamlit/secrets.toml
+# Local backups
+app.py.mission32-backup
+app_before_*.py
+songs_before_*.json
+
+# Local test script
+test_admin_login.py
+songs.json.before-*-migration
+# Local migration scripts
+migrate_songs.py
+migrate_song_styles.py
+app.py.before-*
