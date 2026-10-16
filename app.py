@@ -18,6 +18,25 @@ st.set_page_config(
 
 
 # --------------------------------------------------
+# HELPER FUNCTIONS
+# --------------------------------------------------
+
+def normalize_text(value):
+    """Normalize text for reliable, case-insensitive comparisons."""
+    return str(value or "").strip().casefold()
+
+
+def get_song_style(song):
+    """Support both the current style field and older genre data."""
+    return song.get("style") or song.get("genre") or ""
+
+
+def get_song_scale(song):
+    """Return the song's assigned scale, normalized for comparison."""
+    return normalize_text(song.get("scale"))
+
+
+# --------------------------------------------------
 # SUPABASE ADMIN AUTHENTICATION
 # --------------------------------------------------
 
@@ -30,7 +49,6 @@ def verify_admin_token(access_token):
         )
 
         client.postgrest.auth(access_token)
-
         result = client.rpc("is_admin").execute()
 
         return result.data is True
@@ -216,7 +234,6 @@ else:
 project_folder = Path(__file__).parent
 songs_file = project_folder / "songs.json"
 
-
 try:
     with open(songs_file, "r", encoding="utf-8") as file:
         songs = json.load(file)
@@ -250,6 +267,7 @@ if st.session_state["is_admin"]:
         new_youtube_url = st.text_input(
             "YouTube video URL (optional)"
         )
+
         new_style = st.selectbox(
             "Style",
             [
@@ -459,10 +477,11 @@ if st.session_state["is_admin"]:
                 updated_songs[edit_index]["artist"] = edited_artist.strip()
                 updated_songs[edit_index]["style"] = edited_style
                 updated_songs[edit_index]["scale"] = (
-                edited_scale if edited_scale != "Not assigned" else ""
-            )
+                    edited_scale
+                    if edited_scale != "Not assigned"
+                    else ""
+                )
                 updated_songs[edit_index].pop("genre", None)
-
 
                 updated_songs[edit_index]["mood"] = edited_mood
                 updated_songs[edit_index]["energy"] = edited_energy
@@ -556,21 +575,24 @@ else:
 def calculate_similarity(song, selected_song):
     score = 0
 
-    song_style = song.get("style", song.get("genre", ""))
-    selected_style = selected_song.get(
-        "style", selected_song.get("genre", "")
-    )
+    song_style = normalize_text(get_song_style(song))
+    selected_style = normalize_text(get_song_style(selected_song))
 
-    if song_style.casefold() == selected_style.casefold():
+    if song_style and song_style == selected_style:
         score += 2
 
-    if song.get("scale") and song.get("scale") == selected_song.get("scale"):
+    song_scale = get_song_scale(song)
+    selected_scale = get_song_scale(selected_song)
+
+    if song_scale and song_scale == selected_scale:
         score += 5
 
-    if song["mood"].casefold() == selected_song["mood"].casefold():
+    if normalize_text(song.get("mood")) == normalize_text(
+        selected_song.get("mood")
+    ):
         score += 2
 
-    if song["energy"] == selected_song["energy"]:
+    if song.get("energy") == selected_song.get("energy"):
         score += 1
 
     return score
@@ -604,116 +626,222 @@ else:
 
     st.write(f"**Selected song:** {selected_song['title']}")
 
-    selected_style = selected_song.get(
-        "style", selected_song.get("genre", "Unknown")
-    )
-    selected_scale = selected_song.get("scale") or "Not assigned"
+    selected_style = get_song_style(selected_song)
+    selected_scale_display = selected_song.get("scale") or "Not assigned"
 
     st.write(
-        f"**Style:** {selected_style} | "
-        f"**Scale:** {selected_scale} | "
+        f"**Style:** {selected_style or 'Unknown'} | "
+        f"**Scale:** {selected_scale_display} | "
         f"**Mood:** {selected_song['mood']} | "
         f"**Energy:** {selected_song['energy']}/5"
     )
 
     if st.button("🎵 Recommend Songs", type="primary"):
+
         recommendations = []
 
+        selected_scale = get_song_scale(selected_song)
+        selected_style_key = normalize_text(get_song_style(selected_song))
+
+        # Consider every other song in the library.
         for index, song in enumerate(songs):
+
+            # Never recommend the exact song the user selected.
             if index == selected_index:
                 continue
 
+            # Calculate similarity using style, scale, mood, and energy.
             score = calculate_similarity(song, selected_song)
 
-            if song["mood"].casefold() == user_mood.casefold():
+            # Give extra points when the song matches the user's mood.
+            matches_user_mood = (
+                normalize_text(song.get("mood"))
+                == normalize_text(user_mood)
+            )
+
+            if matches_user_mood:
                 score += 3
+
+            song_style = normalize_text(get_song_style(song))
+            song_scale = get_song_scale(song)
+
+            same_style = bool(
+                song_style and song_style == selected_style_key
+            )
+
+            same_scale = bool(
+                selected_scale and song_scale == selected_scale
+            )
+
+            same_mood = (
+                normalize_text(song.get("mood"))
+                == normalize_text(selected_song.get("mood"))
+            )
+
+            same_energy = (
+                song.get("energy") == selected_song.get("energy")
+            )
 
             reasons = []
 
-            song_style = song.get("style", song.get("genre", ""))
-            selected_style = selected_song.get(
-            "style", selected_song.get("genre", "")
-)
-
-            if song_style and selected_style and song_style.casefold() == selected_style.casefold():
+            if same_style:
                 reasons.append("same style (+2)")
 
-            if song.get("scale") and song.get("scale") == selected_song.get("scale"):
+            if same_scale:
                 reasons.append("same scale (+5)")
 
-            if song["mood"].casefold() == selected_song["mood"].casefold():
+            if same_mood:
                 reasons.append("same mood (+2)")
 
-            if song["energy"] == selected_song["energy"]:
+            if same_energy:
                 reasons.append("same energy (+1)")
 
-            if song["mood"].casefold() == user_mood.casefold():
+            if matches_user_mood:
                 reasons.append("matches your chosen mood (+3)")
 
             recommendations.append({
                 "score": score,
                 "song": song,
-                "reasons": reasons
+                "reasons": reasons,
+                "same_scale": same_scale,
+                "matches_user_mood": matches_user_mood,
+                "same_style": same_style,
+                "same_energy": same_energy
             })
+
+        # Show same-scale songs first.
+        # Within each group, higher-scoring songs come first.
         recommendations.sort(
             key=lambda item: (
+                item["same_scale"],
                 item["score"],
-                item["song"]["mood"].casefold() == user_mood.casefold(),
-                item["song"].get("scale", "") != ""
-                and item["song"].get("scale", "")
-                == selected_song.get("scale", ""),
-                item["song"].get(
-                    "style", item["song"].get("genre", "")
-                ).casefold()
-                == selected_song.get(
-                    "style", selected_song.get("genre", "")
-                ).casefold(),
-                item["song"]["energy"] == selected_song["energy"]
+                item["matches_user_mood"],
+                item["same_style"],
+                item["same_energy"]
             ),
             reverse=True
         )
 
-
+        # IMPORTANT:
+        # Include ALL same-scale songs, even if their score is zero.
+        # Also keep other songs that have a positive similarity score.
         top_matches = [
             item for item in recommendations
-            if item["score"] > 0
-        ][:2]
+            if item["same_scale"] or item["score"] > 0
+        ]
 
         st.subheader("✨ Your Recommendations")
+
+        same_scale_matches = [
+            item for item in top_matches
+            if item["same_scale"]
+        ]
+
+        if selected_scale:
+            st.caption(
+                f"🎼 Found {len(same_scale_matches)} other song(s) "
+                f"with scale {selected_scale_display}."
+            )
 
         if not top_matches:
             st.info("Sorry, no similar songs found.")
 
         else:
-            for item in top_matches:
-                song = item["song"]
+            if same_scale_matches:
+                st.markdown("### 🎼 Songs with the Same Scale")
 
-                with st.container(border=True):
-                    st.subheader(f"🎵 {song['title']}")
-                    st.write(f"🎤 **Artist:** {song['artist']}")
-                    song_style = song.get("style", song.get("genre", "Unknown"))
-                    song_scale = song.get("scale") or "Not assigned"
-                    st.write(f"🎼 **Style:** {song_style} | **Scale:** {song_scale}")
-                    st.write(f"😊 **Mood:** {song['mood']}")
-                    st.write(f"⚡ **Energy:** {song['energy']}/5")
+                for item in same_scale_matches:
+                    song = item["song"]
 
-                    st.write(
-                        f"🏆 **Similarity score:** {item['score']}"
-                    )
+                    with st.container(border=True):
+                        st.subheader(f"🎵 {song['title']}")
+                        st.write(f"🎤 **Artist:** {song['artist']}")
 
-                    if item["reasons"]:
+                        song_style = get_song_style(song) or "Unknown"
+                        song_scale = song.get("scale") or "Not assigned"
+
                         st.write(
-                            "**Why this song?** "
-                            + ", ".join(item["reasons"])
+                            f"🎼 **Style:** {song_style} | "
+                            f"**Scale:** {song_scale}"
+                        )
+                        st.write(f"😊 **Mood:** {song['mood']}")
+                        st.write(f"⚡ **Energy:** {song['energy']}/5")
+                        st.write(
+                            f"🏆 **Similarity score:** {item['score']}"
                         )
 
-                    youtube_url = song.get("youtube_url", "").strip()
-
-                    if youtube_url:
-                        st.link_button(
-                            "▶️ Watch on YouTube",
-                            youtube_url
+                        st.write(
+                            "🎼 **Why this song?** "
+                            "It uses the same scale as your selected song."
                         )
+
+                        # Include any additional reasons.
+                        other_reasons = [
+                            reason for reason in item["reasons"]
+                            if reason != "same scale (+5)"
+                        ]
+
+                        if other_reasons:
+                            st.write(
+                                "**Also matches:** "
+                                + ", ".join(other_reasons)
+                            )
+
+                        youtube_url = (
+                            song.get("youtube_url") or ""
+                        ).strip()
+
+                        if youtube_url:
+                            st.link_button(
+                                "▶️ Watch on YouTube",
+                                youtube_url
+                            )
+
+            # Other recommendations are displayed separately,
+            # without repeating the same-scale songs.
+            other_matches = [
+                item for item in top_matches
+                if not item["same_scale"]
+            ]
+
+            if other_matches:
+                st.markdown("### ✨ Other Similar Songs")
+
+                for item in other_matches:
+                    song = item["song"]
+
+                    with st.container(border=True):
+                        st.subheader(f"🎵 {song['title']}")
+                        st.write(f"🎤 **Artist:** {song['artist']}")
+
+                        song_style = get_song_style(song) or "Unknown"
+                        song_scale = song.get("scale") or "Not assigned"
+
+                        st.write(
+                            f"🎼 **Style:** {song_style} | "
+                            f"**Scale:** {song_scale}"
+                        )
+                        st.write(f"😊 **Mood:** {song['mood']}")
+                        st.write(f"⚡ **Energy:** {song['energy']}/5")
+                        st.write(
+                            f"🏆 **Similarity score:** {item['score']}"
+                        )
+
+                        if item["reasons"]:
+                            st.write(
+                                "**Why this song?** "
+                                + ", ".join(item["reasons"])
+                            )
+
+                        youtube_url = (
+                            song.get("youtube_url") or ""
+                        ).strip()
+
+                        if youtube_url:
+                            st.link_button(
+                                "▶️ Watch on YouTube",
+                                youtube_url
+                            )
 
 
 # --------------------------------------------------
@@ -721,6 +849,7 @@ else:
 # --------------------------------------------------
 
 if st.session_state["is_admin"]:
+
     st.divider()
     st.subheader("❤️ Manage Favorite Songs")
 
@@ -804,13 +933,19 @@ if show_favorites_only:
             with st.container(border=True):
                 st.write(f"❤️ **{song['title']}**")
                 st.write(f"🎤 Artist: {song['artist']}")
-                song_style = song.get("style", song.get("genre", "Unknown"))
+
+                song_style = get_song_style(song) or "Unknown"
                 song_scale = song.get("scale") or "Not assigned"
-                st.write(f"🎼 Style: {song_style} | Scale: {song_scale}")
+
+                st.write(
+                    f"🎼 Style: {song_style} | Scale: {song_scale}"
+                )
                 st.write(f"😊 Mood: {song['mood']}")
                 st.write(f"⚡ Energy: {song['energy']}/5")
 
-                youtube_url = song.get("youtube_url", "").strip()
+                youtube_url = (
+                    song.get("youtube_url") or ""
+                ).strip()
 
                 if youtube_url:
                     st.link_button(
@@ -849,12 +984,12 @@ query = search_query.strip().casefold()
 
 for song in songs:
     if (
-    query in song["title"].casefold()
-    or query in song["artist"].casefold()
-    or query in song.get("style", song.get("genre", "")).casefold()
-    or query in song["mood"].casefold()
-    or query in song.get("scale", "").casefold()
-):
+        query in song["title"].casefold()
+        or query in song["artist"].casefold()
+        or query in normalize_text(get_song_style(song))
+        or query in normalize_text(song.get("mood"))
+        or query in normalize_text(song.get("scale"))
+    ):
         filtered_songs.append(song)
 
 if not filtered_songs:
@@ -867,17 +1002,22 @@ else:
         with st.container(border=True):
             st.write(f"**{song['title']}**")
             st.write(f"🎤 Artist: {song['artist']}")
-            song_style = song.get("style", song.get("genre", "Unknown"))
+
+            song_style = get_song_style(song) or "Unknown"
             song_scale = song.get("scale") or "Not assigned"
 
-            st.write(f"🎼 Style: {song_style} | Scale: {song_scale}")
+            st.write(
+                f"🎼 Style: {song_style} | Scale: {song_scale}"
+            )
             st.write(f"😊 Mood: {song['mood']}")
             st.write(f"⚡ Energy: {song['energy']}/5")
 
             if song.get("favorite", False):
                 st.write("❤️ Favorite")
 
-            youtube_url = song.get("youtube_url", "").strip()
+            youtube_url = (
+                song.get("youtube_url") or ""
+            ).strip()
 
             if youtube_url:
                 st.link_button(
