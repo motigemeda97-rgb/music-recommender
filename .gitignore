@@ -16,3 +16,10 @@ songs.json.before-*-migration
 migrate_songs.py
 migrate_song_styles.py
 app.py.before-*
+
+# Local frontend dependencies
+auth-frontend/node_modules/
+
+# Local backup files
+auth_component_test.py.before-*
+requirements.txt.before-*

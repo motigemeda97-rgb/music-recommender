@@ -57,6 +57,27 @@ def verify_admin_token(access_token):
         return False
 
 
+def verify_user_token(access_token):
+    """Return the verified user's ID, or None if verification fails."""
+    if not access_token:
+        return None
+
+    try:
+        client = create_client(
+            st.secrets["SUPABASE_URL"],
+            st.secrets["SUPABASE_KEY"]
+        )
+
+        response = client.auth.get_user(access_token)
+
+        if response and response.user:
+            return str(response.user.id)
+
+        return None
+
+    except Exception:
+        return None
+
 # Initialize session information
 if "is_admin" not in st.session_state:
     st.session_state["is_admin"] = False
@@ -229,6 +250,102 @@ else:
                     f"Login failed: "
                     f"{type(error).__name__}: {error}"
                 )
+
+
+
+
+# --------------------------------------------------
+# ORDINARY USER AUTHENTICATION
+# --------------------------------------------------
+
+if "user_access_token" not in st.session_state:
+    st.session_state["user_access_token"] = ""
+
+if "user_id" not in st.session_state:
+    st.session_state["user_id"] = ""
+
+if "user_email" not in st.session_state:
+    st.session_state["user_email"] = ""
+
+
+st.divider()
+st.subheader("👤 User Account")
+
+# Load the compiled browser authentication component.
+project_folder = Path(__file__).parent
+bundle_path = (
+    project_folder
+    / "auth-frontend"
+    / "build"
+    / "auth-component.js"
+)
+
+if not bundle_path.exists():
+    st.error(
+        "Browser authentication component build not found. "
+        "Please build the auth-frontend component first."
+    )
+    st.stop()
+
+js_code = bundle_path.read_text(encoding="utf-8")
+
+browser_auth = st.components.v2.component(
+    name="afaan_oromoo_browser_auth",
+    js=js_code,
+)
+
+# Render the browser sign-in / account creation interface.
+auth_result = browser_auth(
+    data={
+        "supabase_url": st.secrets["SUPABASE_URL"],
+        "supabase_anon_key": st.secrets["SUPABASE_KEY"],
+    },
+    default={
+        "access_token": "",
+        "user_id": "",
+        "email": "",
+        "auth_event": "",
+    },
+    on_access_token_change=lambda: None,
+    on_user_id_change=lambda: None,
+    on_email_change=lambda: None,
+    on_auth_event_change=lambda: None,
+    key="afaan_oromoo_browser_auth_instance",
+)
+
+# Keep the existing Streamlit session values synchronized
+# with the browser authentication state.
+# Read the access token supplied by the browser component.
+user_access_token = auth_result.access_token or ""
+
+# Verify the token with Supabase Auth before trusting the identity.
+verified_user_id = verify_user_token(user_access_token)
+
+if verified_user_id:
+    st.session_state["user_access_token"] = user_access_token
+    st.session_state["user_id"] = verified_user_id
+    st.session_state["user_email"] = auth_result.email or ""
+else:
+    # Clear stale identity data if the token is missing or invalid.
+    st.session_state["user_access_token"] = ""
+    st.session_state["user_id"] = ""
+    st.session_state["user_email"] = ""
+
+user_access_token = st.session_state["user_access_token"]
+
+# Preserve the existing Supabase client for personal favorites.
+user_client = create_client(
+    st.secrets["SUPABASE_URL"],
+    st.secrets["SUPABASE_KEY"],
+)
+
+if user_access_token:
+    user_client.postgrest.auth(user_access_token)
+
+    st.success(
+        f"Signed in as: {st.session_state['user_email']}"
+    )
+
 
 
 # --------------------------------------------------
@@ -956,6 +1073,172 @@ if show_favorites_only:
                         "▶️ Watch on YouTube",
                         youtube_url
                     )
+
+
+
+# --------------------------------------------------
+# PERSONAL FAVORITES SAVED IN SUPABASE
+# --------------------------------------------------
+
+st.divider()
+st.subheader("❤️ My Personal Favorites")
+
+if (
+    st.session_state.get("user_access_token")
+    and st.session_state.get("user_id")
+):
+
+    try:
+        # Make requests using the signed-in user's token.
+        user_client.postgrest.auth(
+            st.session_state["user_access_token"]
+        )
+
+        user_id = st.session_state["user_id"]
+
+        # Load this user's personal favorites.
+        response = (
+            user_client.table("user_favorites")
+            .select("song_title, song_artist")
+            .eq("user_id", user_id)
+            .execute()
+        )
+
+        personal_favorites = response.data or []
+
+        favorite_keys = {
+            (item["song_title"], item["song_artist"])
+            for item in personal_favorites
+        }
+
+        # ------------------------------------------
+        # ADD A PERSONAL FAVORITE
+        # ------------------------------------------
+
+        available_songs = [
+            song for song in songs
+            if (song["title"], song["artist"])
+            not in favorite_keys
+        ]
+
+        st.write("### ➕ Add a Personal Favorite")
+
+        if available_songs:
+            selected_personal_song = st.selectbox(
+                "Choose a song:",
+                available_songs,
+                format_func=lambda song: (
+                    f"{song['title']} — {song['artist']}"
+                ),
+                key="personal_favorite_song"
+            )
+
+            if st.button(
+                "❤️ Add to My Favorites",
+                key="add_personal_favorite"
+            ):
+                user_client.table("user_favorites").insert({
+                    "user_id": user_id,
+                    "song_title": selected_personal_song["title"],
+                    "song_artist": selected_personal_song["artist"]
+                }).execute()
+
+                st.success("Song added to your personal favorites!")
+                st.rerun()
+
+        else:
+            st.info("All songs in the library are already your favorites!")
+
+        # ------------------------------------------
+        # DISPLAY AND REMOVE PERSONAL FAVORITES
+        # ------------------------------------------
+
+        st.write("### 🎵 My Saved Songs")
+
+        if not personal_favorites:
+            st.info(
+                "You haven't saved any personal favorites yet."
+            )
+
+        else:
+            st.write(
+                f"You have {len(personal_favorites)} personal favorite(s)."
+            )
+
+            for index, favorite in enumerate(personal_favorites):
+
+                title = favorite["song_title"]
+                artist = favorite["song_artist"]
+
+                with st.container(border=True):
+                    st.write(f"❤️ **{title}**")
+                    st.write(f"🎤 Artist: {artist}")
+
+                    # Find extra details in the song library.
+                    matching_song = next(
+                        (
+                            song for song in songs
+                            if song["title"] == title
+                            and song["artist"] == artist
+                        ),
+                        None
+                    )
+
+                    if matching_song:
+                        song_style = (
+                            get_song_style(matching_song) or "Unknown"
+                        )
+                        song_scale = (
+                            matching_song.get("scale")
+                            or "Not assigned"
+                        )
+
+                        st.write(
+                            f"🎼 Style: {song_style} | "
+                            f"Scale: {song_scale}"
+                        )
+                        st.write(
+                            f"😊 Mood: {matching_song.get('mood', 'Unknown')}"
+                        )
+
+                        youtube_url = (
+                            matching_song.get("youtube_url") or ""
+                        ).strip()
+
+                        if youtube_url:
+                            st.link_button(
+                                "▶️ Watch on YouTube",
+                                youtube_url,
+                                key=f"personal_youtube_{index}"
+                            )
+
+                    if st.button(
+                        "💔 Remove from My Favorites",
+                        key=f"remove_personal_favorite_{index}"
+                    ):
+                        (
+                            user_client.table("user_favorites")
+                            .delete()
+                            .eq("user_id", user_id)
+                            .eq("song_title", title)
+                            .eq("song_artist", artist)
+                            .execute()
+                        )
+
+                        st.success("Removed from your personal favorites.")
+                        st.rerun()
+
+    except Exception as error:
+        st.error(
+            "Could not load or update your personal favorites. "
+            f"Details: {type(error).__name__}: {error}"
+        )
+
+else:
+    st.info(
+        "Sign in to your account above to save and manage "
+        "your own personal favorite songs."
+    )
 
 
 # --------------------------------------------------
