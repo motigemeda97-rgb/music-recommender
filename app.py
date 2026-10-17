@@ -212,6 +212,10 @@ else:
                         st.rerun()
 
                     else:
+                        st.session_state["is_admin"] = False
+                        st.session_state["admin_email"] = ""
+                        st.session_state["admin_access_token"] = ""
+
                         st.error(
                             "Login succeeded, but admin access "
                             "was not confirmed."
