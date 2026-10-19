@@ -34,12 +34,16 @@ const AuthComponent: FrontendRenderer<AuthState, AuthData> = ({
   );
 
   // --------------------------------------------------
-  // DARK PURPLE DESIGN
+  // STYLING
   // --------------------------------------------------
 
   const style = document.createElement("style");
 
   style.textContent = `
+    [hidden] {
+      display: none !important;
+    }
+
     .auth-card {
       box-sizing: border-box;
       width: 100%;
@@ -174,6 +178,17 @@ const AuthComponent: FrontendRenderer<AuthState, AuthData> = ({
       cursor: default;
     }
 
+    .auth-mode-switch {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .auth-mode-switch .auth-button {
+      flex: 1;
+      margin-top: 0;
+    }
+
     .auth-status {
       min-height: 20px;
       margin: 17px 0 0;
@@ -204,6 +219,40 @@ const AuthComponent: FrontendRenderer<AuthState, AuthData> = ({
       font-size: 12px;
     }
 
+    .auth-signed-in-bar {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 4px 0 12px;
+    }
+
+    .auth-signout-button {
+      width: auto;
+      min-width: 100px;
+      min-height: 38px;
+      margin: 0;
+      padding: 8px 16px;
+      border: 1px solid #51418a;
+      border-radius: 10px;
+      background: #292044;
+      color: #ffffff;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .auth-signout-button:hover:not(:disabled) {
+      background: #403064;
+    }
+
+    .auth-signout-button:disabled {
+      opacity: 0.7;
+      cursor: default;
+    }
+
     @media (max-width: 480px) {
       .auth-card {
         padding: 22px 18px;
@@ -217,7 +266,7 @@ const AuthComponent: FrontendRenderer<AuthState, AuthData> = ({
   `;
 
   // --------------------------------------------------
-  // BUILD THE LOGIN FORM
+  // BUILD THE AUTHENTICATION CARD
   // --------------------------------------------------
 
   const card = document.createElement("section");
@@ -283,48 +332,34 @@ const AuthComponent: FrontendRenderer<AuthState, AuthData> = ({
 
   passwordField.append(passwordLabel, passwordInput);
 
-  // Account mode switch
-const modeSwitch = document.createElement("div");
-modeSwitch.style.display = "flex";
-modeSwitch.style.gap = "10px";
-modeSwitch.style.marginBottom = "4px";
+  // Sign-in / Create Account mode switch
+  const modeSwitch = document.createElement("div");
+  modeSwitch.className = "auth-mode-switch";
 
-const signInModeButton = document.createElement("button");
-signInModeButton.type = "button";
-signInModeButton.textContent = "Sign In";
-signInModeButton.className = "auth-button";
-signInModeButton.style.flex = "1";
-signInModeButton.style.marginTop = "0";
+  const signInModeButton = document.createElement("button");
+  signInModeButton.type = "button";
+  signInModeButton.textContent = "Sign In";
+  signInModeButton.className = "auth-button";
 
-const createAccountModeButton = document.createElement("button");
-createAccountModeButton.type = "button";
-createAccountModeButton.textContent = "Create Account";
-createAccountModeButton.className = "auth-button";
-createAccountModeButton.style.flex = "1";
-createAccountModeButton.style.marginTop = "0";
-createAccountModeButton.style.background = "#292044";
+  const createAccountModeButton = document.createElement("button");
+  createAccountModeButton.type = "button";
+  createAccountModeButton.textContent = "Create Account";
+  createAccountModeButton.className = "auth-button";
+  createAccountModeButton.style.background = "#292044";
 
-modeSwitch.append(signInModeButton, createAccountModeButton);
+  modeSwitch.append(signInModeButton, createAccountModeButton);
 
-// Sign-in button
+  // Submit button
   const signInButton = document.createElement("button");
   signInButton.className = "auth-button";
   signInButton.type = "submit";
   signInButton.textContent = "Sign In →";
-
-  // Sign-out button
-  const signOutButton = document.createElement("button");
-  signOutButton.className = "auth-button";
-  signOutButton.type = "button";
-  signOutButton.textContent = "Sign Out";
-  signOutButton.hidden = true;
 
   form.append(
     modeSwitch,
     emailField,
     passwordField,
     signInButton,
-    signOutButton,
   );
 
   // Status message
@@ -341,13 +376,80 @@ modeSwitch.append(signInModeButton, createAccountModeButton);
   footer.textContent = "Your music journey continues here ♡";
 
   card.append(header, form, status, footer);
-  parentElement.append(style, card);
+
+  // --------------------------------------------------
+  // SIGN OUT BAR — SEPARATE FROM THE LOGIN FORM
+  // --------------------------------------------------
+
+  const signOutBar = document.createElement("div");
+  signOutBar.className = "auth-signed-in-bar";
+  signOutBar.hidden = true;
+
+  const signOutButton = document.createElement("button");
+  signOutButton.className = "auth-signout-button";
+  signOutButton.type = "button";
+  signOutButton.textContent = "Sign Out";
+
+  signOutBar.append(signOutButton);
+
+  parentElement.append(style, signOutBar, card);
+
+  // --------------------------------------------------
+  // ACCOUNT MODE
+  // --------------------------------------------------
+
+  let accountMode: "signin" | "signup" = "signin";
+  let active = true;
+
+  const setAccountMode = (mode: "signin" | "signup") => {
+    accountMode = mode;
+
+    const creatingAccount = mode === "signup";
+
+    signInModeButton.style.background = creatingAccount
+      ? "#292044"
+      : "linear-gradient(135deg, #8b5cf6, #6d4aff)";
+
+    createAccountModeButton.style.background = creatingAccount
+      ? "linear-gradient(135deg, #8b5cf6, #6d4aff)"
+      : "#292044";
+
+    heading.textContent = creatingAccount
+      ? "Create your account"
+      : "Welcome back";
+
+    subtitle.textContent = creatingAccount
+      ? "Join us to discover and save your favorite music."
+      : "Sign in to discover music and save your favorite songs.";
+
+    signInButton.textContent = creatingAccount
+      ? "Create Account →"
+      : "Sign In →";
+
+    passwordInput.autocomplete = creatingAccount
+      ? "new-password"
+      : "current-password";
+
+    status.textContent = creatingAccount
+      ? "Create an account to begin your music journey."
+      : "Enter your details to sign in.";
+
+    status.dataset.kind = "info";
+  };
+
+  signInModeButton.addEventListener("click", () => {
+    setAccountMode("signin");
+  });
+
+  createAccountModeButton.addEventListener("click", () => {
+    setAccountMode("signup");
+  });
+
+  setAccountMode("signin");
 
   // --------------------------------------------------
   // SHARE AUTHENTICATION STATE WITH STREAMLIT
   // --------------------------------------------------
-
-  let active = true;
 
   const publishAuthState = (
     session: {
@@ -367,40 +469,30 @@ modeSwitch.append(signInModeButton, createAccountModeButton);
     setStateValue("auth_event", event);
 
     if (session) {
-      emailInput.value = session.user.email ?? "";
-      emailInput.disabled = true;
+      // Signed in: hide the ENTIRE form card.
+      card.hidden = true;
+      signOutBar.hidden = false;
 
-      passwordInput.value = "";
-      passwordInput.hidden = true;
-      passwordLabel.hidden = true;
-      modeSwitch.hidden = true;
-      signInButton.hidden = true;
-      signInButton.disabled = false;
-
-      signOutButton.hidden = false;
       signOutButton.disabled = false;
       signOutButton.textContent = "Sign Out";
-
-      status.textContent =
-        `You're signed in as ${session.user.email ?? "user"}.`;
-      status.dataset.kind = "success";
     } else {
+      // Signed out: show the form and hide Sign Out.
+      card.hidden = false;
+      signOutBar.hidden = true;
+
       emailInput.disabled = false;
-      modeSwitch.hidden = false;
       passwordInput.value = "";
       passwordInput.hidden = false;
       passwordLabel.hidden = false;
+      modeSwitch.hidden = false;
 
       signInButton.hidden = false;
       signInButton.disabled = false;
+
       signInButton.textContent =
         accountMode === "signup"
           ? "Create Account →"
           : "Sign In →";
-
-      signOutButton.hidden = true;
-      signOutButton.disabled = false;
-      signOutButton.textContent = "Sign Out";
 
       if (event === "SIGNED_OUT") {
         emailInput.value = "";
@@ -441,146 +533,99 @@ modeSwitch.append(signInModeButton, createAccountModeButton);
       status.dataset.kind = "error";
     }
   };
-// --------------------------------------------------
-// SWITCH BETWEEN SIGN IN AND CREATE ACCOUNT
-// --------------------------------------------------
 
-let accountMode: "signin" | "signup" = "signin";
-
-const setAccountMode = (mode: "signin" | "signup") => {
-  accountMode = mode;
-
-  const creatingAccount = mode === "signup";
-
-  signInModeButton.style.background = creatingAccount
-    ? "#292044"
-    : "linear-gradient(135deg, #8b5cf6, #6d4aff)";
-
-  createAccountModeButton.style.background = creatingAccount
-    ? "linear-gradient(135deg, #8b5cf6, #6d4aff)"
-    : "#292044";
-
-  heading.textContent = creatingAccount
-    ? "Create your account"
-    : "Welcome back";
-
-  subtitle.textContent = creatingAccount
-    ? "Join us to discover and save your favorite music."
-    : "Sign in to discover music and save your favorite songs.";
-
-  signInButton.textContent = creatingAccount
-    ? "Create Account →"
-    : "Sign In →";
-
-  passwordInput.autocomplete = creatingAccount
-    ? "new-password"
-    : "current-password";
-
-  status.textContent = creatingAccount
-    ? "Create an account to begin your music journey."
-    : "Enter your details to sign in.";
-
-  status.dataset.kind = "info";
-};
-
-signInModeButton.addEventListener("click", () => {
-  setAccountMode("signin");
-});
-
-createAccountModeButton.addEventListener("click", () => {
-  setAccountMode("signup");
-});
-
-setAccountMode("signin");
   // --------------------------------------------------
-  // SIGN IN
+  // SIGN IN / CREATE ACCOUNT
   // --------------------------------------------------
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (signInButton.disabled) return;
-  const creatingAccount = accountMode === "signup";
-  const email = emailInput.value.trim();
-  const password = passwordInput.value;
 
-  signInButton.disabled = true;
-  signInButton.textContent = creatingAccount
-    ? "Creating account..."
-    : "Signing in...";
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
 
-  status.textContent = creatingAccount
-    ? "Creating your account..."
-    : "Checking your account...";
-  status.dataset.kind = "info";
+    if (signInButton.disabled) return;
 
-  try {
-    if (creatingAccount) {
-      const { data: authData, error } =
-        await supabase.auth.signUp({
-          email,
-          password,
-        });
+    const creatingAccount = accountMode === "signup";
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
 
-      if (!active) return;
+    signInButton.disabled = true;
+    signInButton.textContent = creatingAccount
+      ? "Creating account..."
+      : "Signing in...";
 
-      if (error) {
+    status.textContent = creatingAccount
+      ? "Creating your account..."
+      : "Checking your account...";
+
+    status.dataset.kind = "info";
+
+    try {
+      if (creatingAccount) {
+        const { data: authData, error } =
+          await supabase.auth.signUp({
+            email,
+            password,
+          });
+
+        if (!active) return;
+
+        if (error) {
+          status.textContent =
+            `Account creation failed: ${error.message}`;
+          status.dataset.kind = "error";
+          return;
+        }
+
+        if (authData.session && authData.user) {
+          publishAuthState(authData.session, "SIGNED_IN");
+          passwordInput.value = "";
+          return;
+        }
+
+        passwordInput.value = "";
         status.textContent =
-          `Account creation failed: ${error.message}`;
-        status.dataset.kind = "error";
-        return;
-      }
+          "Registration submitted! Check your email for a confirmation link, then sign in.";
+        status.dataset.kind = "success";
+      } else {
+        const { data: authData, error } =
+          await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
 
-      if (authData.session && authData.user) {
+        if (!active) return;
+
+        if (error) {
+          status.textContent =
+            "Sign-in failed. Check your email and password, then try again.";
+          status.dataset.kind = "error";
+          return;
+        }
+
+        if (!authData.session || !authData.user) {
+          status.textContent = "No login session was returned.";
+          status.dataset.kind = "error";
+          return;
+        }
+
         publishAuthState(authData.session, "SIGNED_IN");
         passwordInput.value = "";
-        return;
       }
-
-      passwordInput.value = "";
-      status.textContent =
-        "Registration submitted! Check your email for a confirmation link, then sign in.";
-      status.dataset.kind = "success";
-    } else {
-      const { data: authData, error } =
-        await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-      if (!active) return;
-
-      if (error) {
+    } catch {
+      if (active) {
         status.textContent =
-          "Sign-in failed. Check your email and password, then try again.";
+          "Something went wrong. Please try again.";
         status.dataset.kind = "error";
-        return;
       }
-
-      if (!authData.session || !authData.user) {
-        status.textContent = "No login session was returned.";
-        status.dataset.kind = "error";
-        return;
+    } finally {
+      if (active && signOutBar.hidden) {
+        signInButton.disabled = false;
+        signInButton.textContent =
+          accountMode === "signup"
+            ? "Create Account →"
+            : "Sign In →";
       }
-
-      publishAuthState(authData.session, "SIGNED_IN");
-      passwordInput.value = "";
     }
-  } catch {
-    if (active) {
-      status.textContent =
-        "Something went wrong. Please try again.";
-      status.dataset.kind = "error";
-    }
-  } finally {
-    if (active && signOutButton.hidden) {
-      signInButton.disabled = false;
-      signInButton.textContent =
-        accountMode === "signup"
-          ? "Create Account →"
-          : "Sign In →";
-    }
-  }
-});
-
+  });
 
   // --------------------------------------------------
   // SIGN OUT
@@ -598,24 +643,20 @@ form.addEventListener("submit", async (event) => {
       if (!active) return;
 
       if (error) {
-        status.textContent = "Sign out failed. Please try again.";
-        status.dataset.kind = "error";
         signOutButton.disabled = false;
         signOutButton.textContent = "Sign Out";
       }
-      // On success, the auth-state listener below updates the form.
+      // The auth-state listener handles successful sign-out.
     } catch {
       if (!active) return;
 
-      status.textContent = "Sign out failed. Please try again.";
-      status.dataset.kind = "error";
       signOutButton.disabled = false;
       signOutButton.textContent = "Sign Out";
     }
   });
 
   // --------------------------------------------------
-  // KEEP THE UI IN SYNC WITH SUPABASE
+  // KEEP UI SYNCHRONIZED WITH SUPABASE
   // --------------------------------------------------
 
   const {

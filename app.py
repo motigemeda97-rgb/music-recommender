@@ -6,48 +6,74 @@ import streamlit as st
 from supabase import create_client
 
 
-# --------------------------------------------------
+# ==================================================
 # PAGE CONFIGURATION
-# --------------------------------------------------
+# ==================================================
 
 st.set_page_config(
     page_title="Afaan Oromo's Music Recommender",
     page_icon="🎵",
-    layout="wide"
+    layout="wide",
 )
 
 
-# --------------------------------------------------
+# ==================================================
 # HELPER FUNCTIONS
-# --------------------------------------------------
+# ==================================================
 
 def normalize_text(value):
-    """Normalize text for reliable, case-insensitive comparisons."""
+    """Normalize text for case-insensitive comparisons."""
     return str(value or "").strip().casefold()
 
 
 def get_song_style(song):
-    """Support both the current style field and older genre data."""
+    """Support current style data and older genre data."""
     return song.get("style") or song.get("genre") or ""
 
 
 def get_song_scale(song):
-    """Return the song's assigned scale, normalized for comparison."""
+    """Normalize a song's musical scale."""
     return normalize_text(song.get("scale"))
 
 
-# --------------------------------------------------
-# SUPABASE ADMIN AUTHENTICATION
-# --------------------------------------------------
+def get_supabase_client():
+    """Create a Supabase client using the app's configured credentials."""
+    return create_client(
+        st.secrets["SUPABASE_URL"],
+        st.secrets["SUPABASE_KEY"],
+    )
+
+
+def verify_user_token(access_token):
+    """Ask Supabase Auth to verify the token and return trusted identity."""
+    if not access_token:
+        return None
+
+    try:
+        client = get_supabase_client()
+        response = client.auth.get_user(access_token)
+
+        if not response or not response.user:
+            return None
+
+        return {
+            "user_id": str(response.user.id),
+            "email": response.user.email or "",
+        }
+
+    except Exception:
+        return None
+
 
 def verify_admin_token(access_token):
-    """Verify that the current token belongs to an admin."""
-    try:
-        client = create_client(
-            st.secrets["SUPABASE_URL"],
-            st.secrets["SUPABASE_KEY"]
-        )
+    """Check the verified token's admin role through the database."""
+    if not access_token:
+        return False
 
+    try:
+        client = get_supabase_client()
+
+        # The RPC must run as the authenticated user.
         client.postgrest.auth(access_token)
         result = client.rpc("is_admin").execute()
 
@@ -57,56 +83,38 @@ def verify_admin_token(access_token):
         return False
 
 
-def verify_user_token(access_token):
-    """Return the verified user's ID, or None if verification fails."""
-    if not access_token:
-        return None
-
-    try:
-        client = create_client(
-            st.secrets["SUPABASE_URL"],
-            st.secrets["SUPABASE_KEY"]
+def save_songs(songs, songs_file):
+    """Write the song library while preserving Unicode characters."""
+    with open(songs_file, "w", encoding="utf-8") as file:
+        json.dump(
+            songs,
+            file,
+            indent=4,
+            ensure_ascii=False,
         )
 
-        response = client.auth.get_user(access_token)
 
-        if response and response.user:
-            return str(response.user.id)
-
-        return None
-
-    except Exception:
-        return None
-
-# Initialize session information
-if "is_admin" not in st.session_state:
-    st.session_state["is_admin"] = False
-
-if "admin_email" not in st.session_state:
-    st.session_state["admin_email"] = ""
-
-if "admin_access_token" not in st.session_state:
-    st.session_state["admin_access_token"] = ""
+def song_label(song):
+    return f"{song.get('title', 'Untitled')} — {song.get('artist', 'Unknown artist')}"
 
 
-# Recheck admin permission on each app rerun
-saved_token = st.session_state["admin_access_token"]
+# ==================================================
+# SESSION STATE
+# ==================================================
 
-if saved_token:
-    if verify_admin_token(saved_token):
-        st.session_state["is_admin"] = True
-    else:
-        st.session_state["is_admin"] = False
-        st.session_state["admin_email"] = ""
-        st.session_state["admin_access_token"] = ""
-else:
-    st.session_state["is_admin"] = False
-    st.session_state["admin_email"] = ""
+for key, default in {
+    "user_access_token": "",
+    "user_id": "",
+    "user_email": "",
+    "is_admin": False,
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 
-# --------------------------------------------------
+# ==================================================
 # PAGE DESIGN
-# --------------------------------------------------
+# ==================================================
 
 st.markdown("""
 <style>
@@ -167,112 +175,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --------------------------------------------------
-# ADMIN LOGIN AND LOGOUT
-# --------------------------------------------------
+# ==================================================
+# SHARED USER AND ADMIN AUTHENTICATION
+# ==================================================
 
 st.divider()
-st.subheader("🔐 Admin Login")
+st.subheader("🔐 Your Account")
 
-if st.session_state["is_admin"]:
-    st.success(
-        f"Logged in as admin: "
-        f"{st.session_state['admin_email']}"
-    )
+st.write(
+    "Sign in or create an account."
+)
 
-    if st.button("🚪 Admin Logout"):
-        st.session_state["is_admin"] = False
-        st.session_state["admin_email"] = ""
-        st.session_state["admin_access_token"] = ""
-        st.rerun()
-
-else:
-    with st.form("admin_login_form"):
-        admin_email = st.text_input("Admin email")
-
-        admin_password = st.text_input(
-            "Admin password",
-            type="password"
-        )
-
-        login_clicked = st.form_submit_button("🔑 Sign In")
-
-    if login_clicked:
-        if not admin_email.strip() or not admin_password:
-            st.error("Please enter your email and password.")
-        else:
-            try:
-                login_client = create_client(
-                    st.secrets["SUPABASE_URL"],
-                    st.secrets["SUPABASE_KEY"]
-                )
-
-                response = login_client.auth.sign_in_with_password({
-                    "email": admin_email.strip(),
-                    "password": admin_password
-                })
-
-                if response.session:
-                    access_token = response.session.access_token
-
-                    login_client.postgrest.auth(access_token)
-
-                    admin_check = login_client.rpc(
-                        "is_admin"
-                    ).execute()
-
-                    if admin_check.data is True:
-                        st.session_state["is_admin"] = True
-                        st.session_state["admin_email"] = (
-                            admin_email.strip()
-                        )
-                        st.session_state["admin_access_token"] = (
-                            access_token
-                        )
-
-                        st.rerun()
-
-                    else:
-                        st.session_state["is_admin"] = False
-                        st.session_state["admin_email"] = ""
-                        st.session_state["admin_access_token"] = ""
-
-                        st.error(
-                            "Login succeeded, but admin access "
-                            "was not confirmed."
-                        )
-
-                else:
-                    st.error("No login session was returned.")
-
-            except Exception as error:
-                st.error(
-                    f"Login failed: "
-                    f"{type(error).__name__}: {error}"
-                )
-
-
-
-
-# --------------------------------------------------
-# ORDINARY USER AUTHENTICATION
-# --------------------------------------------------
-
-if "user_access_token" not in st.session_state:
-    st.session_state["user_access_token"] = ""
-
-if "user_id" not in st.session_state:
-    st.session_state["user_id"] = ""
-
-if "user_email" not in st.session_state:
-    st.session_state["user_email"] = ""
-
-
-st.divider()
-st.subheader("👤 User Account")
-
-# Load the compiled browser authentication component.
 project_folder = Path(__file__).parent
+
 bundle_path = (
     project_folder
     / "auth-frontend"
@@ -282,82 +197,111 @@ bundle_path = (
 
 if not bundle_path.exists():
     st.error(
-        "Browser authentication component build not found. "
-        "Please build the auth-frontend component first."
+        "The browser authentication component was not found. "
+        "Build auth-frontend first, then restart the app."
     )
     st.stop()
 
-js_code = bundle_path.read_text(encoding="utf-8")
+try:
+    js_code = bundle_path.read_text(encoding="utf-8")
+    auth_component = st.components.v2.component(
+        name="afaan_oromoo_browser_auth",
+        js=js_code,
+    )
 
-browser_auth = st.components.v2.component(
-    name="afaan_oromoo_browser_auth",
-    js=js_code,
-)
+    auth_result = auth_component(
+        data={
+            "supabase_url": st.secrets["SUPABASE_URL"],
+            "supabase_anon_key": st.secrets["SUPABASE_KEY"],
+        },
+        default={
+            "access_token": "",
+            "user_id": "",
+            "email": "",
+            "auth_event": "",
+        },
+        on_access_token_change=lambda: None,
+        on_user_id_change=lambda: None,
+        on_email_change=lambda: None,
+        on_auth_event_change=lambda: None,
+        key="afaan_oromoo_browser_auth_instance",
+    )
 
-# Render the browser sign-in / account creation interface.
-auth_result = browser_auth(
-    data={
-        "supabase_url": st.secrets["SUPABASE_URL"],
-        "supabase_anon_key": st.secrets["SUPABASE_KEY"],
-    },
-    default={
-        "access_token": "",
-        "user_id": "",
-        "email": "",
-        "auth_event": "",
-    },
-    on_access_token_change=lambda: None,
-    on_user_id_change=lambda: None,
-    on_email_change=lambda: None,
-    on_auth_event_change=lambda: None,
-    key="afaan_oromoo_browser_auth_instance",
-)
+except Exception as error:
+    st.error(
+        "The authentication interface could not be loaded. "
+        f"Error type: {type(error).__name__}"
+    )
+    st.stop()
 
-# Keep the existing Streamlit session values synchronized
-# with the browser authentication state.
-# Read the access token supplied by the browser component.
-user_access_token = auth_result.access_token or ""
 
-# Verify the token with Supabase Auth before trusting the identity.
-verified_user_id = verify_user_token(user_access_token)
+# Only trust the token after verifying it with Supabase Auth.
+browser_token = (
+    getattr(auth_result, "access_token", "") or ""
+).strip()
 
-if verified_user_id:
-    st.session_state["user_access_token"] = user_access_token
+verified_identity = verify_user_token(browser_token)
+
+if verified_identity:
+    verified_user_id = verified_identity["user_id"]
+    verified_email = verified_identity["email"]
+
+    # Never trust the user ID or email supplied by the browser.
+    st.session_state["user_access_token"] = browser_token
     st.session_state["user_id"] = verified_user_id
-    st.session_state["user_email"] = auth_result.email or ""
+    st.session_state["user_email"] = verified_email
+
+    # Admin status is independently checked in the database.
+    st.session_state["is_admin"] = verify_admin_token(browser_token)
+
 else:
-    # Clear stale identity data if the token is missing or invalid.
+    # Clear identity and permissions immediately when signed out
+    # or when Supabase rejects the supplied token.
     st.session_state["user_access_token"] = ""
     st.session_state["user_id"] = ""
     st.session_state["user_email"] = ""
+    st.session_state["is_admin"] = False
+
 
 user_access_token = st.session_state["user_access_token"]
+user_id = st.session_state["user_id"]
+user_email = st.session_state["user_email"]
+is_admin = st.session_state["is_admin"]
 
-# Preserve the existing Supabase client for personal favorites.
-user_client = create_client(
-    st.secrets["SUPABASE_URL"],
-    st.secrets["SUPABASE_KEY"],
-)
+
+# Create the database client used for this user's favorites.
+user_client = get_supabase_client()
 
 if user_access_token:
     user_client.postgrest.auth(user_access_token)
 
-    st.success(
-        f"Signed in as: {st.session_state['user_email']}"
-    )
+    if is_admin:
+        st.success(f"✅ Administrator verified: {user_email}")
+        st.info(
+            "You have administrator permissions. "
+            "Your song-management controls are available below."
+        )
+    else:
+        st.success(f"✅ Signed in as: {user_email}")
+        st.caption(
+            "Your account has regular-user permissions. "
+            "You can manage your own personal favorites."
+        )
 
 
-
-# --------------------------------------------------
+# ==================================================
 # LOAD THE SONG LIBRARY
-# --------------------------------------------------
+# ==================================================
 
-project_folder = Path(__file__).parent
 songs_file = project_folder / "songs.json"
 
 try:
     with open(songs_file, "r", encoding="utf-8") as file:
         songs = json.load(file)
+
+    if not isinstance(songs, list):
+        st.error("songs.json must contain a list of songs.")
+        st.stop()
 
 except FileNotFoundError:
     st.error("songs.json was not found in the project folder.")
@@ -368,11 +312,11 @@ except json.JSONDecodeError:
     st.stop()
 
 
-# --------------------------------------------------
+# ==================================================
 # ADMIN-ONLY SONG MANAGEMENT
-# --------------------------------------------------
+# ==================================================
 
-if st.session_state["is_admin"]:
+if is_admin:
 
     # ----------------------------------------------
     # ADD A NEW SONG
@@ -399,8 +343,8 @@ if st.session_state["is_admin"]:
                 "Disco",
                 "Chikchika",
                 "Walloo",
-                "Shawaa"
-            ]
+                "Shawaa",
+            ],
         )
 
         new_scale = st.selectbox(
@@ -409,20 +353,20 @@ if st.session_state["is_admin"]:
                 "First (C)",
                 "Second (D)",
                 "Fifth (G)",
-                "Sixth (A)"
-            ]
+                "Sixth (A)",
+            ],
         )
 
         new_mood = st.selectbox(
             "Mood",
-            ["Happy", "Calm", "Energetic", "Sad"]
+            ["Happy", "Calm", "Energetic", "Sad"],
         )
 
         new_energy = st.slider(
             "Energy level",
             min_value=1,
             max_value=5,
-            value=3
+            value=3,
         )
 
         add_song_clicked = st.form_submit_button("➕ Add Song")
@@ -432,10 +376,10 @@ if st.session_state["is_admin"]:
             st.error("Please enter both the song title and artist.")
 
         elif any(
-            song["title"].strip().casefold()
-            == new_title.strip().casefold()
-            and song["artist"].strip().casefold()
-            == new_artist.strip().casefold()
+            normalize_text(song.get("title"))
+            == normalize_text(new_title)
+            and normalize_text(song.get("artist"))
+            == normalize_text(new_artist)
             for song in songs
         ):
             st.warning(
@@ -451,22 +395,11 @@ if st.session_state["is_admin"]:
                 "mood": new_mood,
                 "energy": new_energy,
                 "youtube_url": new_youtube_url.strip(),
-                "favorite": False
+                "favorite": False,
             }
 
-            updated_songs = songs + [new_song]
-
-            with open(songs_file, "w", encoding="utf-8") as file:
-                json.dump(
-                    updated_songs,
-                    file,
-                    indent=4,
-                    ensure_ascii=False
-                )
-
-            st.success(
-                f"Added '{new_title.strip()}' successfully!"
-            )
+            save_songs(songs + [new_song], songs_file)
+            st.success(f"Added '{new_title.strip()}' successfully!")
             st.rerun()
 
 
@@ -481,10 +414,8 @@ if st.session_state["is_admin"]:
         edit_index = st.selectbox(
             "Choose a song to edit:",
             range(len(songs)),
-            format_func=lambda i: (
-                f"{songs[i]['title']} — {songs[i]['artist']}"
-            ),
-            key="edit_song_index"
+            format_func=lambda i: song_label(songs[i]),
+            key="edit_song_index",
         )
 
         selected_edit_song = songs[edit_index]
@@ -492,17 +423,17 @@ if st.session_state["is_admin"]:
         with st.form("edit_song_form"):
             edited_title = st.text_input(
                 "Song title",
-                value=selected_edit_song["title"]
+                value=selected_edit_song.get("title", ""),
             )
 
             edited_artist = st.text_input(
                 "Artist name",
-                value=selected_edit_song["artist"]
+                value=selected_edit_song.get("artist", ""),
             )
 
             edited_youtube_url = st.text_input(
                 "YouTube video URL (optional)",
-                value=selected_edit_song.get("youtube_url", "")
+                value=selected_edit_song.get("youtube_url", ""),
             )
 
             style_options = [
@@ -513,13 +444,10 @@ if st.session_state["is_admin"]:
                 "Disco",
                 "Chikchika",
                 "Walloo",
-                "Shawaa"
+                "Shawaa",
             ]
 
-            current_style = selected_edit_song.get(
-                "style",
-                selected_edit_song.get("genre", "Waltz")
-            )
+            current_style = get_song_style(selected_edit_song) or "Waltz"
 
             if current_style not in style_options:
                 style_options.append(current_style)
@@ -527,7 +455,7 @@ if st.session_state["is_admin"]:
             edited_style = st.selectbox(
                 "Style",
                 style_options,
-                index=style_options.index(current_style)
+                index=style_options.index(current_style),
             )
 
             scale_options = [
@@ -535,25 +463,24 @@ if st.session_state["is_admin"]:
                 "First (C)",
                 "Second (D)",
                 "Fifth (G)",
-                "Sixth (A)"
+                "Sixth (A)",
             ]
 
-            current_scale = selected_edit_song.get(
-                "scale", "Not assigned"
+            current_scale = (
+                selected_edit_song.get("scale") or "Not assigned"
             )
+
+            if current_scale not in scale_options:
+                scale_options.append(current_scale)
 
             edited_scale = st.selectbox(
                 "Scale",
                 scale_options,
-                index=scale_options.index(
-                    current_scale
-                    if current_scale in scale_options
-                    else "Not assigned"
-                )
+                index=scale_options.index(current_scale),
             )
 
             mood_options = ["Happy", "Calm", "Energetic", "Sad"]
-            current_mood = selected_edit_song["mood"]
+            current_mood = selected_edit_song.get("mood", "Happy")
 
             if current_mood not in mood_options:
                 mood_options.append(current_mood)
@@ -561,30 +488,31 @@ if st.session_state["is_admin"]:
             edited_mood = st.selectbox(
                 "Mood",
                 mood_options,
-                index=mood_options.index(current_mood)
+                index=mood_options.index(current_mood),
             )
+
+            current_energy = selected_edit_song.get("energy", 3)
+            current_energy = max(1, min(5, int(current_energy)))
 
             edited_energy = st.slider(
                 "Energy level",
                 min_value=1,
                 max_value=5,
-                value=selected_edit_song["energy"]
+                value=current_energy,
             )
 
             edit_clicked = st.form_submit_button("💾 Save Changes")
 
         if edit_clicked:
             if not edited_title.strip() or not edited_artist.strip():
-                st.error(
-                    "Please enter both the song title and artist."
-                )
+                st.error("Please enter both the song title and artist.")
 
             elif any(
                 i != edit_index
-                and song["title"].strip().casefold()
-                == edited_title.strip().casefold()
-                and song["artist"].strip().casefold()
-                == edited_artist.strip().casefold()
+                and normalize_text(song.get("title"))
+                == normalize_text(edited_title)
+                and normalize_text(song.get("artist"))
+                == normalize_text(edited_artist)
                 for i, song in enumerate(songs)
             ):
                 st.warning(
@@ -593,31 +521,21 @@ if st.session_state["is_admin"]:
 
             else:
                 updated_songs = [song.copy() for song in songs]
+                updated = updated_songs[edit_index]
 
-                updated_songs[edit_index]["title"] = edited_title.strip()
-                updated_songs[edit_index]["artist"] = edited_artist.strip()
-                updated_songs[edit_index]["style"] = edited_style
-                updated_songs[edit_index]["scale"] = (
-                    edited_scale
-                    if edited_scale != "Not assigned"
-                    else ""
+                updated["title"] = edited_title.strip()
+                updated["artist"] = edited_artist.strip()
+                updated["style"] = edited_style
+                updated["scale"] = (
+                    "" if edited_scale == "Not assigned"
+                    else edited_scale
                 )
-                updated_songs[edit_index].pop("genre", None)
+                updated.pop("genre", None)
+                updated["mood"] = edited_mood
+                updated["energy"] = edited_energy
+                updated["youtube_url"] = edited_youtube_url.strip()
 
-                updated_songs[edit_index]["mood"] = edited_mood
-                updated_songs[edit_index]["energy"] = edited_energy
-                updated_songs[edit_index]["youtube_url"] = (
-                    edited_youtube_url.strip()
-                )
-
-                with open(songs_file, "w", encoding="utf-8") as file:
-                    json.dump(
-                        updated_songs,
-                        file,
-                        indent=4,
-                        ensure_ascii=False
-                    )
-
+                save_songs(updated_songs, songs_file)
                 st.success("Song updated successfully! 🎉")
                 st.rerun()
 
@@ -636,44 +554,30 @@ if st.session_state["is_admin"]:
         delete_index = st.selectbox(
             "Choose a song to delete:",
             range(len(songs)),
-            format_func=lambda i: (
-                f"{songs[i]['title']} — {songs[i]['artist']}"
-            ),
-            key="delete_song_index"
+            format_func=lambda i: song_label(songs[i]),
+            key="delete_song_index",
         )
 
         song_to_delete = songs[delete_index]
 
-        st.warning(
-            f"You selected: {song_to_delete['title']} "
-            f"by {song_to_delete['artist']}"
-        )
+        st.warning(f"You selected: {song_label(song_to_delete)}")
 
         confirm_delete = st.checkbox(
             "Yes, I want to delete this song.",
-            key="confirm_delete_song"
+            key="confirm_delete_song",
         )
 
         if st.button("🗑️ Delete Song"):
             if confirm_delete:
-                deleted_title = songs[delete_index]["title"]
+                deleted_title = songs[delete_index].get("title", "Song")
 
                 updated_songs = [
                     song for i, song in enumerate(songs)
                     if i != delete_index
                 ]
 
-                with open(songs_file, "w", encoding="utf-8") as file:
-                    json.dump(
-                        updated_songs,
-                        file,
-                        indent=4,
-                        ensure_ascii=False
-                    )
-
-                st.success(
-                    f"'{deleted_title}' was deleted successfully! 🎉"
-                )
+                save_songs(updated_songs, songs_file)
+                st.success(f"'{deleted_title}' was deleted successfully!")
                 st.rerun()
 
             else:
@@ -684,14 +588,13 @@ if st.session_state["is_admin"]:
 
 else:
     st.info(
-        "🔒 Song management is available to authenticated admins only. "
-        "Sign in above to add, edit, or delete songs."
+        "🔒 Song management is available to verified administrators only."
     )
 
 
-# --------------------------------------------------
+# ==================================================
 # RECOMMENDATION SCORING
-# --------------------------------------------------
+# ==================================================
 
 def calculate_similarity(song, selected_song):
     score = 0
@@ -719,9 +622,9 @@ def calculate_similarity(song, selected_song):
     return score
 
 
-# --------------------------------------------------
+# ==================================================
 # PUBLIC MUSIC RECOMMENDATIONS
-# --------------------------------------------------
+# ==================================================
 
 st.divider()
 st.subheader("🎧 Find Your Next Favorite Song")
@@ -732,20 +635,18 @@ if not songs:
 else:
     user_mood = st.selectbox(
         "How are you feeling today?",
-        ["Happy", "Calm", "Energetic", "Sad"]
+        ["Happy", "Calm", "Energetic", "Sad"],
     )
 
     selected_index = st.selectbox(
         "Choose a song you already like:",
         range(len(songs)),
-        format_func=lambda i: (
-            f"{songs[i]['title']} — {songs[i]['artist']}"
-        )
+        format_func=lambda i: song_label(songs[i]),
     )
 
     selected_song = songs[selected_index]
 
-    st.write(f"**Selected song:** {selected_song['title']}")
+    st.write(f"**Selected song:** {selected_song.get('title', '')}")
 
     selected_style = get_song_style(selected_song)
     selected_scale_display = selected_song.get("scale") or "Not assigned"
@@ -753,28 +654,22 @@ else:
     st.write(
         f"**Style:** {selected_style or 'Unknown'} | "
         f"**Scale:** {selected_scale_display} | "
-        f"**Mood:** {selected_song['mood']} | "
-        f"**Energy:** {selected_song['energy']}/5"
+        f"**Mood:** {selected_song.get('mood', 'Unknown')} | "
+        f"**Energy:** {selected_song.get('energy', '?')}/5"
     )
 
     if st.button("🎵 Recommend Songs", type="primary"):
-
         recommendations = []
 
         selected_scale = get_song_scale(selected_song)
         selected_style_key = normalize_text(get_song_style(selected_song))
 
-        # Consider every other song in the library.
         for index, song in enumerate(songs):
-
-            # Never recommend the exact song the user selected.
             if index == selected_index:
                 continue
 
-            # Calculate similarity using style, scale, mood, and energy.
             score = calculate_similarity(song, selected_song)
 
-            # Give extra points when the song matches the user's mood.
             matches_user_mood = (
                 normalize_text(song.get("mood"))
                 == normalize_text(user_mood)
@@ -789,16 +684,13 @@ else:
             same_style = bool(
                 song_style and song_style == selected_style_key
             )
-
             same_scale = bool(
                 selected_scale and song_scale == selected_scale
             )
-
             same_mood = (
                 normalize_text(song.get("mood"))
                 == normalize_text(selected_song.get("mood"))
             )
-
             same_energy = (
                 song.get("energy") == selected_song.get("energy")
             )
@@ -807,16 +699,12 @@ else:
 
             if same_style:
                 reasons.append("same style (+2)")
-
             if same_scale:
                 reasons.append("same scale (+5)")
-
             if same_mood:
                 reasons.append("same mood (+2)")
-
             if same_energy:
                 reasons.append("same energy (+1)")
-
             if matches_user_mood:
                 reasons.append("matches your chosen mood (+3)")
 
@@ -827,25 +715,21 @@ else:
                 "same_scale": same_scale,
                 "matches_user_mood": matches_user_mood,
                 "same_style": same_style,
-                "same_energy": same_energy
+                "same_energy": same_energy,
             })
 
-        # Show same-scale songs first.
-        # Within each group, higher-scoring songs come first.
         recommendations.sort(
             key=lambda item: (
                 item["same_scale"],
                 item["score"],
                 item["matches_user_mood"],
                 item["same_style"],
-                item["same_energy"]
+                item["same_energy"],
             ),
-            reverse=True
+            reverse=True,
         )
 
-        # IMPORTANT:
-        # Include ALL same-scale songs, even if their score is zero.
-        # Also keep other songs that have a positive similarity score.
+        # Keep every same-scale match and every other positive match.
         top_matches = [
             item for item in recommendations
             if item["same_scale"] or item["score"] > 0
@@ -853,124 +737,118 @@ else:
 
         st.subheader("✨ Your Recommendations")
 
-        same_scale_matches = [
+        # Split recommendations into non-overlapping groups so each song
+        # appears in only one section.
+        same_scale_and_style = [
             item for item in top_matches
-            if item["same_scale"]
+            if item["same_scale"] and item["same_style"]
         ]
+        same_scale_only = [
+            item for item in top_matches
+            if item["same_scale"] and not item["same_style"]
+        ]
+        same_style_only = [
+            item for item in top_matches
+            if item["same_style"] and not item["same_scale"]
+        ]
+        other_matches = [
+            item for item in top_matches
+            if not item["same_scale"] and not item["same_style"]
+        ]
+
+        def show_recommendation_table(heading, matches):
+            st.markdown(f"### {heading}")
+            rows = []
+            for item in matches:
+                song = item["song"]
+                rows.append({
+                    "Song": song.get("title", "Untitled"),
+                    "Artist": song.get("artist", "Unknown"),
+                    "Scale": get_song_scale(song) or "Not assigned",
+                    "Style": get_song_style(song) or "Unknown",
+                    "Score": item["score"],
+                    "Why it matches": ", ".join(item["reasons"]),
+                    "YouTube": (song.get("youtube_url") or "").strip(),
+                })
+
+            st.dataframe(
+                rows,
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "YouTube": st.column_config.LinkColumn(
+                        "YouTube",
+                        display_text="▶️ Watch",
+                    )
+                },
+            )
+
+        st.markdown(
+            "Compare recommendations in separate tables. Each song appears "
+            "in only one group, with scale and style matches shown first."
+        )
+
+        if same_scale_and_style:
+            show_recommendation_table(
+                "🎼 Same Scale + Same Style",
+                same_scale_and_style,
+            )
+        else:
+            st.info("No other songs match both the selected scale and style.")
 
         if selected_scale:
             st.caption(
-                f"🎼 Found {len(same_scale_matches)} other song(s) "
-                f"with scale {selected_scale_display}."
+                f"🎹 Found {len(same_scale_and_style) + len(same_scale_only)} "
+                f"other song(s) with scale {selected_scale_display}."
             )
+
+        if same_scale_only:
+            show_recommendation_table(
+                "🎹 Same Scale, Different Style",
+                same_scale_only,
+            )
+        elif selected_scale:
+            st.caption("No additional songs match the scale with a different style.")
+
+        if same_style_only:
+            show_recommendation_table(
+                "🎶 Same Style, Different Scale",
+                same_style_only,
+            )
+        else:
+            st.caption("No additional songs match the style with a different scale.")
+
+        if other_matches:
+            st.markdown("### ✨ Other Similar Songs")
+            for item in other_matches:
+                song = item["song"]
+
+                with st.container(border=True):
+                    st.subheader(f"🎵 {song.get('title', 'Untitled')}")
+                    st.write(f"🎤 **Artist:** {song.get('artist', 'Unknown')}")
+                    st.write(
+                        f"🎼 **Style:** {get_song_style(song) or 'Unknown'} | "
+                        f"**Scale:** {get_song_scale(song) or 'Not assigned'}"
+                    )
+                    st.write(f"😊 **Mood:** {song.get('mood', 'Unknown')}")
+                    st.write(f"⚡ **Energy:** {song.get('energy', '?')}/5")
+                    st.write(f"🏆 **Similarity score:** {item['score']}")
+
+                    if item["reasons"]:
+                        st.write("**Why this song?** " + ", ".join(item["reasons"]))
+
+                    youtube_url = (song.get("youtube_url") or "").strip()
+                    if youtube_url:
+                        st.link_button("▶️ Watch on YouTube", youtube_url)
 
         if not top_matches:
             st.info("Sorry, no similar songs found.")
 
-        else:
-            if same_scale_matches:
-                st.markdown("### 🎼 Songs with the Same Scale")
+# ==================================================
+# ADMIN-ONLY GLOBAL FAVORITE MANAGEMENT
+# ==================================================
 
-                for item in same_scale_matches:
-                    song = item["song"]
-
-                    with st.container(border=True):
-                        st.subheader(f"🎵 {song['title']}")
-                        st.write(f"🎤 **Artist:** {song['artist']}")
-
-                        song_style = get_song_style(song) or "Unknown"
-                        song_scale = song.get("scale") or "Not assigned"
-
-                        st.write(
-                            f"🎼 **Style:** {song_style} | "
-                            f"**Scale:** {song_scale}"
-                        )
-                        st.write(f"😊 **Mood:** {song['mood']}")
-                        st.write(f"⚡ **Energy:** {song['energy']}/5")
-                        st.write(
-                            f"🏆 **Similarity score:** {item['score']}"
-                        )
-
-                        st.write(
-                            "🎼 **Why this song?** "
-                            "It uses the same scale as your selected song."
-                        )
-
-                        # Include any additional reasons.
-                        other_reasons = [
-                            reason for reason in item["reasons"]
-                            if reason != "same scale (+5)"
-                        ]
-
-                        if other_reasons:
-                            st.write(
-                                "**Also matches:** "
-                                + ", ".join(other_reasons)
-                            )
-
-                        youtube_url = (
-                            song.get("youtube_url") or ""
-                        ).strip()
-
-                        if youtube_url:
-                            st.link_button(
-                                "▶️ Watch on YouTube",
-                                youtube_url
-                            )
-
-            # Other recommendations are displayed separately,
-            # without repeating the same-scale songs.
-            other_matches = [
-                item for item in top_matches
-                if not item["same_scale"]
-            ]
-
-            if other_matches:
-                st.markdown("### ✨ Other Similar Songs")
-
-                for item in other_matches:
-                    song = item["song"]
-
-                    with st.container(border=True):
-                        st.subheader(f"🎵 {song['title']}")
-                        st.write(f"🎤 **Artist:** {song['artist']}")
-
-                        song_style = get_song_style(song) or "Unknown"
-                        song_scale = song.get("scale") or "Not assigned"
-
-                        st.write(
-                            f"🎼 **Style:** {song_style} | "
-                            f"**Scale:** {song_scale}"
-                        )
-                        st.write(f"😊 **Mood:** {song['mood']}")
-                        st.write(f"⚡ **Energy:** {song['energy']}/5")
-                        st.write(
-                            f"🏆 **Similarity score:** {item['score']}"
-                        )
-
-                        if item["reasons"]:
-                            st.write(
-                                "**Why this song?** "
-                                + ", ".join(item["reasons"])
-                            )
-
-                        youtube_url = (
-                            song.get("youtube_url") or ""
-                        ).strip()
-
-                        if youtube_url:
-                            st.link_button(
-                                "▶️ Watch on YouTube",
-                                youtube_url
-                            )
-
-
-# --------------------------------------------------
-# ADMIN-ONLY FAVORITE MANAGEMENT
-# --------------------------------------------------
-
-if st.session_state["is_admin"]:
-
+if is_admin:
     st.divider()
     st.subheader("❤️ Manage Favorite Songs")
 
@@ -978,46 +856,30 @@ if st.session_state["is_admin"]:
         favorite_index = st.selectbox(
             "Choose a song:",
             range(len(songs)),
-            format_func=lambda i: (
-                f"{songs[i]['title']} — {songs[i]['artist']}"
-            ),
-            key="favorite_song_index"
+            format_func=lambda i: song_label(songs[i]),
+            key="favorite_song_index",
         )
 
         selected_favorite_song = songs[favorite_index]
 
         if selected_favorite_song.get("favorite", False):
-            st.write("❤️ This song is currently a favorite.")
+            st.write("❤️ This song is currently marked as a favorite.")
 
             if st.button("💔 Remove from Favorites"):
                 updated_songs = [song.copy() for song in songs]
                 updated_songs[favorite_index]["favorite"] = False
-
-                with open(songs_file, "w", encoding="utf-8") as file:
-                    json.dump(
-                        updated_songs,
-                        file,
-                        indent=4,
-                        ensure_ascii=False
-                    )
+                save_songs(updated_songs, songs_file)
 
                 st.success("Song removed from favorites!")
                 st.rerun()
 
         else:
-            st.write("This song is not currently a favorite.")
+            st.write("This song is not currently marked as a favorite.")
 
             if st.button("❤️ Add to Favorites"):
                 updated_songs = [song.copy() for song in songs]
                 updated_songs[favorite_index]["favorite"] = True
-
-                with open(songs_file, "w", encoding="utf-8") as file:
-                    json.dump(
-                        updated_songs,
-                        file,
-                        indent=4,
-                        ensure_ascii=False
-                    )
+                save_songs(updated_songs, songs_file)
 
                 st.success("Song added to favorites!")
                 st.rerun()
@@ -1026,16 +888,16 @@ if st.session_state["is_admin"]:
         st.info("Add a song before managing favorites.")
 
 
-# --------------------------------------------------
-# PUBLIC FAVORITE SONG DISPLAY
-# --------------------------------------------------
+# ==================================================
+# PUBLIC DISPLAY OF GLOBALLY MARKED FAVORITES
+# ==================================================
 
 st.divider()
-st.subheader("💖 Your Favorite Songs")
+st.subheader("💖 Favorite Songs")
 
 show_favorites_only = st.checkbox(
-    "Show only my favorite songs",
-    key="show_favorites_only"
+    "Show only songs marked as favorites",
+    key="show_favorites_only",
 )
 
 if show_favorites_only:
@@ -1052,51 +914,37 @@ if show_favorites_only:
 
         for song in favorite_songs:
             with st.container(border=True):
-                st.write(f"❤️ **{song['title']}**")
-                st.write(f"🎤 Artist: {song['artist']}")
-
-                song_style = get_song_style(song) or "Unknown"
-                song_scale = song.get("scale") or "Not assigned"
+                st.write(f"❤️ **{song.get('title', 'Untitled')}**")
+                st.write(f"🎤 Artist: {song.get('artist', 'Unknown')}")
 
                 st.write(
-                    f"🎼 Style: {song_style} | Scale: {song_scale}"
+                    f"🎼 Style: {get_song_style(song) or 'Unknown'} | "
+                    f"Scale: {song.get('scale') or 'Not assigned'}"
                 )
-                st.write(f"😊 Mood: {song['mood']}")
-                st.write(f"⚡ Energy: {song['energy']}/5")
+                st.write(f"😊 Mood: {song.get('mood', 'Unknown')}")
+                st.write(f"⚡ Energy: {song.get('energy', '?')}/5")
 
                 youtube_url = (
                     song.get("youtube_url") or ""
                 ).strip()
 
                 if youtube_url:
-                    st.link_button(
-                        "▶️ Watch on YouTube",
-                        youtube_url
-                    )
+                    st.link_button("▶️ Watch on YouTube", youtube_url)
 
 
-
-# --------------------------------------------------
+# ==================================================
 # PERSONAL FAVORITES SAVED IN SUPABASE
-# --------------------------------------------------
+# ==================================================
 
 st.divider()
 st.subheader("❤️ My Personal Favorites")
 
-if (
-    st.session_state.get("user_access_token")
-    and st.session_state.get("user_id")
-):
+if user_access_token and user_id:
 
     try:
-        # Make requests using the signed-in user's token.
-        user_client.postgrest.auth(
-            st.session_state["user_access_token"]
-        )
+        # The client uses this signed-in user's access token.
+        user_client.postgrest.auth(user_access_token)
 
-        user_id = st.session_state["user_id"]
-
-        # Load this user's personal favorites.
         response = (
             user_client.table("user_favorites")
             .select("song_title, song_artist")
@@ -1117,8 +965,10 @@ if (
 
         available_songs = [
             song for song in songs
-            if (song["title"], song["artist"])
-            not in favorite_keys
+            if (
+                song.get("title", ""),
+                song.get("artist", ""),
+            ) not in favorite_keys
         ]
 
         st.write("### ➕ Add a Personal Favorite")
@@ -1127,27 +977,27 @@ if (
             selected_personal_song = st.selectbox(
                 "Choose a song:",
                 available_songs,
-                format_func=lambda song: (
-                    f"{song['title']} — {song['artist']}"
-                ),
-                key="personal_favorite_song"
+                format_func=song_label,
+                key="personal_favorite_song",
             )
 
             if st.button(
                 "❤️ Add to My Favorites",
-                key="add_personal_favorite"
+                key="add_personal_favorite",
             ):
                 user_client.table("user_favorites").insert({
                     "user_id": user_id,
                     "song_title": selected_personal_song["title"],
-                    "song_artist": selected_personal_song["artist"]
+                    "song_artist": selected_personal_song["artist"],
                 }).execute()
 
                 st.success("Song added to your personal favorites!")
                 st.rerun()
 
         else:
-            st.info("All songs in the library are already your favorites!")
+            st.info(
+                "All songs in the library are already your favorites!"
+            )
 
         # ------------------------------------------
         # DISPLAY AND REMOVE PERSONAL FAVORITES
@@ -1156,9 +1006,7 @@ if (
         st.write("### 🎵 My Saved Songs")
 
         if not personal_favorites:
-            st.info(
-                "You haven't saved any personal favorites yet."
-            )
+            st.info("You haven't saved any personal favorites yet.")
 
         else:
             st.write(
@@ -1166,7 +1014,6 @@ if (
             )
 
             for index, favorite in enumerate(personal_favorites):
-
                 title = favorite["song_title"]
                 artist = favorite["song_artist"]
 
@@ -1174,28 +1021,19 @@ if (
                     st.write(f"❤️ **{title}**")
                     st.write(f"🎤 Artist: {artist}")
 
-                    # Find extra details in the song library.
                     matching_song = next(
                         (
                             song for song in songs
-                            if song["title"] == title
-                            and song["artist"] == artist
+                            if song.get("title") == title
+                            and song.get("artist") == artist
                         ),
-                        None
+                        None,
                     )
 
                     if matching_song:
-                        song_style = (
-                            get_song_style(matching_song) or "Unknown"
-                        )
-                        song_scale = (
-                            matching_song.get("scale")
-                            or "Not assigned"
-                        )
-
                         st.write(
-                            f"🎼 Style: {song_style} | "
-                            f"Scale: {song_scale}"
+                            f"🎼 Style: {get_song_style(matching_song) or 'Unknown'} | "
+                            f"Scale: {matching_song.get('scale') or 'Not assigned'}"
                         )
                         st.write(
                             f"😊 Mood: {matching_song.get('mood', 'Unknown')}"
@@ -1209,12 +1047,12 @@ if (
                             st.link_button(
                                 "▶️ Watch on YouTube",
                                 youtube_url,
-                                key=f"personal_youtube_{index}"
+                                key=f"personal_youtube_{index}",
                             )
 
                     if st.button(
                         "💔 Remove from My Favorites",
-                        key=f"remove_personal_favorite_{index}"
+                        key=f"remove_personal_favorite_{index}",
                     ):
                         (
                             user_client.table("user_favorites")
@@ -1229,21 +1067,22 @@ if (
                         st.rerun()
 
     except Exception as error:
+        # Avoid displaying database or authentication internals.
         st.error(
             "Could not load or update your personal favorites. "
-            f"Details: {type(error).__name__}: {error}"
+            f"Error type: {type(error).__name__}"
         )
 
 else:
     st.info(
-        "Sign in to your account above to save and manage "
+        "Sign in using the account panel above to save and manage "
         "your own personal favorite songs."
     )
 
 
-# --------------------------------------------------
+# ==================================================
 # PUBLIC SONG LIBRARY AND SEARCH
-# --------------------------------------------------
+# ==================================================
 
 st.divider()
 st.subheader("🎶 Your Song Library")
@@ -1251,32 +1090,40 @@ st.subheader("🎶 Your Song Library")
 
 def clear_search():
     st.session_state["song_search"] = ""
+    st.session_state["song_library_page"] = 1
 
 
-st.button(
-    "✖ Clear search",
-    on_click=clear_search
-)
+def reset_song_library_page():
+    st.session_state["song_library_page"] = 1
+
+
+if "song_library_page" not in st.session_state:
+    st.session_state["song_library_page"] = 1
+
+st.button("✖ Clear search", on_click=clear_search)
 
 search_query = st.text_input(
     "🔍 Search songs",
     placeholder="Type a song title, artist, style, mood, or scale...",
-    key="song_search"
+    key="song_search",
+    on_change=reset_song_library_page,
 )
 
 st.write(f"Total songs: {len(songs)}")
 
+query = normalize_text(search_query)
 filtered_songs = []
-query = search_query.strip().casefold()
 
 for song in songs:
-    if (
-        query in song["title"].casefold()
-        or query in song["artist"].casefold()
-        or query in normalize_text(get_song_style(song))
-        or query in normalize_text(song.get("mood"))
-        or query in normalize_text(song.get("scale"))
-    ):
+    searchable_values = [
+        song.get("title", ""),
+        song.get("artist", ""),
+        get_song_style(song),
+        song.get("mood", ""),
+        song.get("scale", ""),
+    ]
+
+    if any(query in normalize_text(value) for value in searchable_values):
         filtered_songs.append(song)
 
 if not filtered_songs:
@@ -1285,19 +1132,38 @@ if not filtered_songs:
 else:
     st.write(f"Songs found: {len(filtered_songs)}")
 
-    for song in filtered_songs:
-        with st.container(border=True):
-            st.write(f"**{song['title']}**")
-            st.write(f"🎤 Artist: {song['artist']}")
+    songs_per_page = 10
+    total_pages = max(
+        1,
+        (len(filtered_songs) + songs_per_page - 1) // songs_per_page,
+    )
 
-            song_style = get_song_style(song) or "Unknown"
-            song_scale = song.get("scale") or "Not assigned"
+    current_page = min(
+        max(1, st.session_state["song_library_page"]),
+        total_pages,
+    )
+    st.session_state["song_library_page"] = current_page
+
+    start_index = (current_page - 1) * songs_per_page
+    end_index = start_index + songs_per_page
+    page_songs = filtered_songs[start_index:end_index]
+
+    st.caption(
+        f"Showing songs {start_index + 1}–{min(end_index, len(filtered_songs))} "
+        f"of {len(filtered_songs)} · Page {current_page} of {total_pages}"
+    )
+
+    for song in page_songs:
+        with st.container(border=True):
+            st.write(f"**{song.get('title', 'Untitled')}**")
+            st.write(f"🎤 Artist: {song.get('artist', 'Unknown')}")
 
             st.write(
-                f"🎼 Style: {song_style} | Scale: {song_scale}"
+                f"🎼 Style: {get_song_style(song) or 'Unknown'} | "
+                f"Scale: {song.get('scale') or 'Not assigned'}"
             )
-            st.write(f"😊 Mood: {song['mood']}")
-            st.write(f"⚡ Energy: {song['energy']}/5")
+            st.write(f"😊 Mood: {song.get('mood', 'Unknown')}")
+            st.write(f"⚡ Energy: {song.get('energy', '?')}/5")
 
             if song.get("favorite", False):
                 st.write("❤️ Favorite")
@@ -1307,7 +1173,32 @@ else:
             ).strip()
 
             if youtube_url:
-                st.link_button(
-                    "▶️ Watch on YouTube",
-                    youtube_url
-                )
+                st.link_button("▶️ Watch on YouTube", youtube_url)
+
+    previous_col, page_col, next_col = st.columns([1, 2, 1])
+
+    with previous_col:
+        if st.button(
+            "⬅️ Previous",
+            disabled=current_page <= 1,
+            key="song_library_previous",
+        ):
+            st.session_state["song_library_page"] = current_page - 1
+            st.rerun()
+
+    with page_col:
+        st.markdown(
+            f"<div style='text-align:center; padding-top:0.5rem;'>"
+            f"Page <strong>{current_page}</strong> of <strong>{total_pages}</strong>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    with next_col:
+        if st.button(
+            "Next ➡️",
+            disabled=current_page >= total_pages,
+            key="song_library_next",
+        ):
+            st.session_state["song_library_page"] = current_page + 1
+            st.rerun()
