@@ -1,4 +1,4 @@
-
+﻿
 import json
 from pathlib import Path
 
@@ -83,15 +83,52 @@ def verify_admin_token(access_token):
         return False
 
 
-def save_songs(songs, songs_file):
-    """Write the song library while preserving Unicode characters."""
-    with open(songs_file, "w", encoding="utf-8") as file:
-        json.dump(
-            songs,
-            file,
-            indent=4,
-            ensure_ascii=False,
-        )
+def load_songs_from_supabase(client):
+    """Load songs from the permanent Supabase database."""
+    response = (
+        client.table("songs")
+        .select("*")
+        .order("id")
+        .execute()
+    )
+    return response.data or []
+
+
+def insert_song_into_supabase(client, song):
+    """Insert a song into Supabase."""
+    database_song = {
+        "title": song["title"],
+        "artist": song["artist"],
+        "genre": song.get("style") or song.get("genre") or "",
+        "scale": song.get("scale") or None,
+        "mood": song.get("mood") or "Calm",
+        "energy": int(song.get("energy", 3)),
+        "youtube_url": song.get("youtube_url") or None,
+        "favorite": bool(song.get("favorite", False)),
+        "approval_status": song.get("approval_status", "approved"),
+    }
+
+    return client.table("songs").insert(database_song).execute()
+
+
+def update_song_in_supabase(client, song_id, changes):
+    """Update an existing song by its database ID."""
+    return (
+        client.table("songs")
+        .update(changes)
+        .eq("id", song_id)
+        .execute()
+    )
+
+
+def delete_song_from_supabase(client, song_id):
+    """Delete a song by its database ID."""
+    return (
+        client.table("songs")
+        .delete()
+        .eq("id", song_id)
+        .execute()
+    )
 
 
 def song_label(song):
@@ -289,27 +326,25 @@ if user_access_token:
         )
 
 
-# ==================================================
-# LOAD THE SONG LIBRARY
-# ==================================================
 
-songs_file = project_folder / "songs.json"
+# ==================================================
+# LOAD THE SONG LIBRARY FROM SUPABASE
+# ==================================================
 
 try:
-    with open(songs_file, "r", encoding="utf-8") as file:
-        songs = json.load(file)
+    songs = load_songs_from_supabase(user_client)
 
-    if not isinstance(songs, list):
-        st.error("songs.json must contain a list of songs.")
-        st.stop()
+    for song in songs:
+        song["style"] = song.get("genre") or ""
+        song["scale"] = song.get("scale") or ""
 
-except FileNotFoundError:
-    st.error("songs.json was not found in the project folder.")
+except Exception as error:
+    st.error(
+        "Could not load the song library from Supabase. "
+        f"Error type: {type(error).__name__}"
+    )
     st.stop()
 
-except json.JSONDecodeError:
-    st.error("songs.json contains invalid JSON.")
-    st.stop()
 
 
 # ==================================================
@@ -398,10 +433,15 @@ if is_admin:
                 "favorite": False,
             }
 
-            save_songs(songs + [new_song], songs_file)
-            st.success(f"Added '{new_title.strip()}' successfully!")
-            st.rerun()
-
+            try:
+                insert_song_into_supabase(user_client, new_song)
+                st.success(f"Added '{new_title.strip()}' successfully!")
+                st.rerun()
+            except Exception as error:
+                st.error(
+                    "Could not save the song to Supabase. "
+                    f"Error type: {type(error).__name__}"
+                )
 
     # ----------------------------------------------
     # EDIT AN EXISTING SONG
@@ -520,24 +560,34 @@ if is_admin:
                 )
 
             else:
-                updated_songs = [song.copy() for song in songs]
-                updated = updated_songs[edit_index]
+                changes = {
+                    "title": edited_title.strip(),
+                    "artist": edited_artist.strip(),
+                    "genre": edited_style,
+                    "scale": (
+                        None if edited_scale == "Not assigned"
+                        else edited_scale
+                    ),
+                    "mood": edited_mood,
+                    "energy": edited_energy,
+                    "youtube_url": edited_youtube_url.strip() or None,
+                }
 
-                updated["title"] = edited_title.strip()
-                updated["artist"] = edited_artist.strip()
-                updated["style"] = edited_style
-                updated["scale"] = (
-                    "" if edited_scale == "Not assigned"
-                    else edited_scale
-                )
-                updated.pop("genre", None)
-                updated["mood"] = edited_mood
-                updated["energy"] = edited_energy
-                updated["youtube_url"] = edited_youtube_url.strip()
+                try:
+                    update_song_in_supabase(
+                        user_client,
+                        selected_edit_song["id"],
+                        changes,
+                    )
+                    st.success("Song updated successfully! 🎉")
+                    st.rerun()
 
-                save_songs(updated_songs, songs_file)
-                st.success("Song updated successfully! 🎉")
-                st.rerun()
+                except Exception as error:
+                    st.error(
+                        "Could not update the song in Supabase. "
+                        f"Error type: {type(error).__name__}"
+                    )
+
 
     else:
         st.info("Add a song before trying to edit one.")
@@ -570,15 +620,22 @@ if is_admin:
         if st.button("🗑️ Delete Song"):
             if confirm_delete:
                 deleted_title = songs[delete_index].get("title", "Song")
+                try:
+                    delete_song_from_supabase(
+                        user_client,
+                        song_to_delete["id"],
+                    )
+                    st.success(
+                        f"'{deleted_title}' was deleted successfully!"
+                    )
+                    st.rerun()
 
-                updated_songs = [
-                    song for i, song in enumerate(songs)
-                    if i != delete_index
-                ]
+                except Exception as error:
+                    st.error(
+                        "Could not delete the song from Supabase. "
+                        f"Error type: {type(error).__name__}"
+                    )
 
-                save_songs(updated_songs, songs_file)
-                st.success(f"'{deleted_title}' was deleted successfully!")
-                st.rerun()
 
             else:
                 st.error("Please confirm before deleting the song.")
@@ -861,37 +918,49 @@ if is_admin:
         )
 
         selected_favorite_song = songs[favorite_index]
-
         if selected_favorite_song.get("favorite", False):
             st.write("❤️ This song is currently marked as a favorite.")
-
             if st.button("💔 Remove from Favorites"):
-                updated_songs = [song.copy() for song in songs]
-                updated_songs[favorite_index]["favorite"] = False
-                save_songs(updated_songs, songs_file)
+                song_to_update = songs[favorite_index]
 
-                st.success("Song removed from favorites!")
-                st.rerun()
+                try:
+                    update_song_in_supabase(
+                        user_client,
+                        song_to_update["id"],
+                        {"favorite": False},
+                    )
+                    st.success("Song removed from favorites!")
+                    st.rerun()
 
+                except Exception as error:
+                    st.error(
+                        "Could not update favorites in Supabase. "
+                        f"Error type: {type(error).__name__}"
+                    )
         else:
             st.write("This song is not currently marked as a favorite.")
-
             if st.button("❤️ Add to Favorites"):
-                updated_songs = [song.copy() for song in songs]
-                updated_songs[favorite_index]["favorite"] = True
-                save_songs(updated_songs, songs_file)
+                song_to_update = songs[favorite_index]
 
-                st.success("Song added to favorites!")
-                st.rerun()
+                try:
+                    update_song_in_supabase(
+                        user_client,
+                        song_to_update["id"],
+                        {"favorite": True},
+                    )
+                    st.success("Song added to favorites!")
+                    st.rerun()
 
+                except Exception as error:
+                    st.error(
+                        "Could not update favorites in Supabase. "
+                        f"Error type: {type(error).__name__}"
+                    )
     else:
         st.info("Add a song before managing favorites.")
-
-
 # ==================================================
 # PUBLIC DISPLAY OF GLOBALLY MARKED FAVORITES
 # ==================================================
-
 st.divider()
 st.subheader("💖 Favorite Songs")
 
